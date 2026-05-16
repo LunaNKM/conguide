@@ -340,6 +340,10 @@ export default function AdminDashboard({ currentUser = null, onLogout }: AdminDa
   const [createState, setCreateState] = useState<ExcelCreateState>(emptyExcelCreate);
   const [createBusy, setCreateBusy] = useState(false);
   const [createPreview, setCreatePreview] = useState<GuideTab | null>(null);
+  const [isAdminCreateOpen, setIsAdminCreateOpen] = useState(false);
+  const [newAdminEmail, setNewAdminEmail] = useState("");
+  const [newAdminName, setNewAdminName] = useState("");
+  const [adminCreateBusy, setAdminCreateBusy] = useState(false);
 
   async function loadCampaigns() {
     if (!isFirebaseClientConfigured()) {
@@ -869,6 +873,45 @@ export default function AdminDashboard({ currentUser = null, onLogout }: AdminDa
     }
   }
 
+  async function addAllowedAdmin() {
+    const email = newAdminEmail.trim().toLowerCase();
+    const name = newAdminName.trim();
+
+    if (!email || !email.includes("@")) {
+      setError("추가할 관리자 이메일을 정확히 입력해 주세요.");
+      return;
+    }
+
+    if (!isFirebaseClientConfigured()) {
+      setError("Firebase 환경변수가 설정되어 있지 않습니다.");
+      return;
+    }
+
+    setAdminCreateBusy(true);
+    setError("");
+    setMessage("관리자 계정을 추가하는 중입니다...");
+
+    try {
+      const db = getFirebaseDb();
+      await setDoc(doc(db, "allowedAdmins", email), {
+        email,
+        name: name || email.split("@")[0],
+        createdAt: serverTimestamp(),
+        createdBy: currentUser?.email ?? "unknown",
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      setMessage(`${email} 계정을 관리자로 추가했습니다.`);
+      setNewAdminEmail("");
+      setNewAdminName("");
+      setIsAdminCreateOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "관리자 추가 중 오류가 발생했습니다.");
+    } finally {
+      setAdminCreateBusy(false);
+    }
+  }
+
   useEffect(() => {
     loadCampaigns();
   }, []);
@@ -937,6 +980,7 @@ export default function AdminDashboard({ currentUser = null, onLogout }: AdminDa
         <div className="topbar">
           <strong>Campaign Operations</strong>
           <div className="topbar-right">
+            <button className="btn btn-ghost" type="button" onClick={() => setIsAdminCreateOpen(true)} disabled={loading}>관리자 추가</button>
             <button className="btn btn-ghost" type="button" onClick={loadCampaigns} disabled={loading}>새로고침</button>
             <button className="btn btn-primary" type="button" onClick={openCreateModal} disabled={loading}>새 캠페인</button>
           </div>
@@ -1034,6 +1078,46 @@ export default function AdminDashboard({ currentUser = null, onLogout }: AdminDa
 
         </div>
       </main>
+
+      {isAdminCreateOpen ? (
+        <div style={modalOverlayStyle}>
+          <div style={{ ...modalStyle, width: "min(520px, 100%)" }}>
+            <div style={modalHeaderStyle}>
+              <div>
+                <strong>관리자 추가</strong>
+                <p style={{ margin: "4px 0 0", color: "#9E9890", fontSize: 12 }}>Google 로그인에 사용할 이메일을 allowedAdmins에 등록합니다.</p>
+              </div>
+              <button className="icon-btn" type="button" onClick={() => setIsAdminCreateOpen(false)}>×</button>
+            </div>
+
+            <div style={{ display: "grid", gap: 14 }}>
+              <Field
+                label="관리자 이메일"
+                value={newAdminEmail}
+                onChange={setNewAdminEmail}
+                placeholder="example@gfutures.co"
+              />
+              <Field
+                label="이름 / 표시명"
+                value={newAdminName}
+                onChange={setNewAdminName}
+                placeholder="예: 홍길동"
+              />
+
+              <div className="setup-banner warn" style={{ marginBottom: 0 }}>
+                추가된 이메일은 Google 로그인 후 관리자 페이지에 접근할 수 있습니다. Firestore Rules 적용이 필요합니다.
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button className="btn btn-ghost" type="button" onClick={() => setIsAdminCreateOpen(false)}>취소</button>
+                <button className="btn btn-primary" type="button" onClick={addAllowedAdmin} disabled={adminCreateBusy || !newAdminEmail.trim()}>
+                  {adminCreateBusy ? "추가 중..." : "관리자 추가"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {isCreateOpen ? (
         <div style={modalOverlayStyle}>
