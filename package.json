@@ -4,23 +4,23 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "NEXT_PRIVATE_MAX_WORKER_THREADS=1 next build",
     "start": "next start",
     "lint": "next lint"
   },
   "dependencies": {
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.48.1",
-    "next": "^15.1.6",
+    "next": "14.2.23",
     "openai": "^4.77.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",
-    "@types/react": "^19.0.7",
-    "@types/react-dom": "^19.0.3",
+    "@types/react": "18.3.18",
+    "@types/react-dom": "18.3.5",
     "eslint": "^9.18.0",
     "eslint-config-next": "^15.1.6",
     "typescript": "^5.7.3"

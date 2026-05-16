@@ -126,14 +126,45 @@ function AccordionSection({ items, defaultOpenFirst }: { items: GuideItem[]; def
 }
 
 function MarkdownLite({ text }: { text: string }) {
-  const html = text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-    .replace(/^- (.*)$/gm, "<li>$1</li>")
-    .replace(/(<li>.*<\/li>)/gs, "<ul>$1</ul>")
-    .replace(/\n/g, "<br />");
+  const escapeHtml = (value: string) =>
+    value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
 
-  return <div className="markdown-lite" dangerouslySetInnerHTML={{ __html: html }} />;
+  const renderInline = (value: string) =>
+    escapeHtml(value).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+
+  const lines = text.split("\n");
+  const htmlParts: string[] = [];
+  let listItems: string[] = [];
+
+  const flushList = () => {
+    if (listItems.length > 0) {
+      htmlParts.push(`<ul>${listItems.join("")}</ul>`);
+      listItems = [];
+    }
+  };
+
+  lines.forEach((line) => {
+    const bullet = line.match(/^- (.*)$/);
+
+    if (bullet) {
+      listItems.push(`<li>${renderInline(bullet[1])}</li>`);
+      return;
+    }
+
+    flushList();
+
+    if (line.trim() === "") {
+      htmlParts.push("<br />");
+      return;
+    }
+
+    htmlParts.push(`<p>${renderInline(line)}</p>`);
+  });
+
+  flushList();
+
+  return <div className="markdown-lite" dangerouslySetInnerHTML={{ __html: htmlParts.join("") }} />;
 }
