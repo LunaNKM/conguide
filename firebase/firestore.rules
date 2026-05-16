@@ -1,51 +1,61 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
+
+    function isSignedIn() {
       return request.auth != null;
     }
 
-    function allowedAdmin() {
-      return signedIn()
-        && exists(/databases/$(database)/documents/allowedAdmins/$(request.auth.token.email));
+    function adminDocPath() {
+      return /databases/$(database)/documents/allowedAdmins/$(request.auth.token.email);
+    }
+
+    function isAllowedAdmin() {
+      return isSignedIn() && exists(adminDocPath());
     }
 
     match /allowedAdmins/{email} {
-      allow read: if signedIn();
-      allow write: if false;
+      allow get: if isSignedIn() && email == request.auth.token.email;
+      allow list: if isAllowedAdmin();
+      allow create, update, delete: if false;
     }
 
     match /campaigns/{campaignId} {
-      allow read, write: if allowedAdmin();
+      allow read, write: if isAllowedAdmin();
     }
 
     match /campaignTabs/{tabId} {
-      allow read: if resource.data.status == 'published' || allowedAdmin();
-      allow write: if allowedAdmin();
-
-      match /sections/{sectionId} {
-        allow read: if get(/databases/$(database)/documents/campaignTabs/$(tabId)).data.status == 'published' || allowedAdmin();
-        allow write: if allowedAdmin();
-
-        match /items/{itemId} {
-          allow read: if get(/databases/$(database)/documents/campaignTabs/$(tabId)).data.status == 'published' || allowedAdmin();
-          allow write: if allowedAdmin();
-
-          match /media/{mediaId} {
-            allow read: if get(/databases/$(database)/documents/campaignTabs/$(tabId)).data.status == 'published' || allowedAdmin();
-            allow write: if allowedAdmin();
-          }
-        }
-      }
+      allow read, write: if isAllowedAdmin();
     }
 
-    match /glossaryGlobal/{id} {
-      allow read, write: if allowedAdmin();
+    match /guideSections/{sectionId} {
+      allow read, write: if isAllowedAdmin();
     }
 
-    match /systemTemplates/{id} {
-      allow read: if true;
-      allow write: if allowedAdmin();
+    match /guideItems/{itemId} {
+      allow read, write: if isAllowedAdmin();
+    }
+
+    match /mediaAssets/{mediaId} {
+      allow read, write: if isAllowedAdmin();
+    }
+
+    // Public guide pages read exactly one prebuilt document by share token.
+    // This removes permission errors caused by multi-collection anonymous queries.
+    match /publicGuides/{token} {
+      allow get: if true;
+      allow list: if isAllowedAdmin();
+      allow create, update, delete: if isAllowedAdmin();
+    }
+
+    match /glossaryGlobal/{docId} {
+      allow read, write: if isAllowedAdmin();
+    }
+
+    match /systemTemplates/{docId} {
+      allow get, list: if true;
+      allow create, update, delete: if isAllowedAdmin();
     }
   }
 }
