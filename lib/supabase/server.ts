@@ -1,27 +1,12 @@
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
-import { cookies } from "next/headers";
-
-export async function createClient() {
-  const cookieStore = await cookies();
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Missing Supabase server environment variables.");
-  }
-
-  return createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll();
-      },
-      setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
-        } catch {
-          // Server components cannot always set cookies. Middleware handles session refresh.
-        }
-      }
-    }
-  });
+/**
+ * Legacy Supabase compatibility shim.
+ *
+ * This project has migrated to Firebase. This file exists only because an older
+ * Supabase version may still remain in the GitHub repository after partial ZIP
+ * uploads. Do not use this helper for new code.
+ */
+export function createClient() {
+  throw new Error(
+    "Supabase has been removed from this project. Use lib/firebase/admin.ts or lib/firebase/client.ts instead."
+  );
 }
