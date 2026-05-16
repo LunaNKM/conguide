@@ -433,6 +433,60 @@ export default function AdminDashboard() {
     setIsCreateOpen(true);
   }
 
+  async function generatePreviewFromParsed(parsed: ParsedOrientSheet, options?: { fileName?: string }) {
+    setCreateBusy(true);
+    setError("");
+    setMessage("오리엔시트 내용을 바탕으로 일본어 가이드 초안을 자동 생성 중입니다...");
+
+    try {
+      const campaignId = createId("campaign");
+      const tabId = createId("tab");
+      const baseBrand = parsed.fields.brandName || "Brand";
+      const baseProduct = parsed.fields.productName || parsed.sheetName.replace(/^KOR_/, "") || "Product";
+      const shareToken = `guide-${slugify(baseBrand)}-${slugify(baseProduct)}-${Date.now()}-jp`;
+      const blank = makeBlankGuide({
+        tabId,
+        campaignId,
+        shareToken,
+        brandName: baseBrand,
+        productName: baseProduct,
+        skuName: baseProduct,
+        brandColor: createState.brandColor,
+        status: createState.status
+      });
+      const glossary = await readGlossary();
+      const response = await fetch("/api/generate/guide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parsed, glossary })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "GPT 가이드 생성에 실패했습니다.");
+
+      const merged = ensureFixedNotice(rewriteGuideIds(mergeGeneratedGuide(blank, result.guide), tabId, campaignId, shareToken));
+      const guide: GuideTab = {
+        ...merged,
+        brandColor: createState.brandColor,
+        status: createState.status,
+        campaignId,
+        id: tabId,
+        shareToken
+      };
+      setCreatePreview(guide);
+      setCreateState((current) => ({
+        ...current,
+        parsed,
+        fileName: options?.fileName ?? current.fileName,
+        campaignName: current.campaignName || `${guide.brandName} ${guide.productName}`.trim()
+      }));
+      setMessage(result.mode === "openai" ? "GPT 초안을 자동 생성했습니다. 캠페인 저장을 누르면 등록됩니다." : "임시 초안을 자동 생성했습니다. OPENAI_API_KEY 설정 후 더 자연스럽게 생성할 수 있습니다.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "초안 생성 중 오류가 발생했습니다.");
+    } finally {
+      setCreateBusy(false);
+    }
+  }
+
   async function handleCreateExcelUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -450,10 +504,10 @@ export default function AdminDashboard() {
         parsed,
         campaignName: current.campaignName || [detectedBrand, detectedProduct].filter(Boolean).join(" ") || file.name.replace(/\.xlsx?$/i, "")
       }));
-      setMessage(`${parsed.sheetName} 시트를 읽었습니다. 아래 버튼으로 GPT 초안을 생성해 주세요.`);
+      setMessage(`${parsed.sheetName} 시트를 읽었습니다. GPT 초안을 자동 생성합니다.`);
+      await generatePreviewFromParsed(parsed, { fileName: file.name });
     } catch (err) {
       setError(err instanceof Error ? err.message : "엑셀 파일을 읽는 중 오류가 발생했습니다.");
-    } finally {
       setCreateBusy(false);
     }
   }
@@ -463,56 +517,7 @@ export default function AdminDashboard() {
       setError("먼저 오리엔시트 XLSX 파일을 선택해 주세요.");
       return;
     }
-
-    setCreateBusy(true);
-    setError("");
-    setMessage("오리엔시트 내용을 바탕으로 일본어 가이드 초안을 생성 중입니다...");
-
-    try {
-      const campaignId = createId("campaign");
-      const tabId = createId("tab");
-      const baseBrand = createState.parsed.fields.brandName || "Brand";
-      const baseProduct = createState.parsed.fields.productName || createState.parsed.sheetName.replace(/^KOR_/, "") || "Product";
-      const shareToken = `guide-${slugify(baseBrand)}-${slugify(baseProduct)}-${Date.now()}-jp`;
-      const blank = makeBlankGuide({
-        tabId,
-        campaignId,
-        shareToken,
-        brandName: baseBrand,
-        productName: baseProduct,
-        skuName: baseProduct,
-        brandColor: createState.brandColor,
-        status: createState.status
-      });
-      const glossary = await readGlossary();
-      const response = await fetch("/api/generate/guide", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ parsed: createState.parsed, glossary })
-      });
-      const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.error || "GPT 가이드 생성에 실패했습니다.");
-
-      const merged = ensureFixedNotice(rewriteGuideIds(mergeGeneratedGuide(blank, result.guide), tabId, campaignId, shareToken));
-      const guide: GuideTab = {
-        ...merged,
-        brandColor: createState.brandColor,
-        status: createState.status,
-        campaignId,
-        id: tabId,
-        shareToken
-      };
-      setCreatePreview(guide);
-      setCreateState((current) => ({
-        ...current,
-        campaignName: current.campaignName || `${guide.brandName} ${guide.productName}`.trim()
-      }));
-      setMessage(result.mode === "openai" ? "GPT 초안을 생성했습니다. 생성 버튼을 누르면 캠페인으로 저장됩니다." : "임시 초안을 생성했습니다. OPENAI_API_KEY 설정 후 더 자연스럽게 생성할 수 있습니다.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "초안 생성 중 오류가 발생했습니다.");
-    } finally {
-      setCreateBusy(false);
-    }
+    await generatePreviewFromParsed(createState.parsed, { fileName: createState.fileName });
   }
 
   async function createCampaignFromPreview() {
@@ -956,12 +961,18 @@ export default function AdminDashboard() {
             </div>
 
             <div style={{ display: "grid", gap: 14 }}>
-              <label className="upload-zone" style={{ display: "block" }}>
-                <input type="file" accept=".xlsx,.xls" onChange={handleCreateExcelUpload} style={{ display: "none" }} />
+              <div className="upload-zone" style={{ display: "grid", gap: 10, textAlign: "left" }}>
                 <div className="upload-text">오리엔시트 XLSX 업로드</div>
-                <div className="upload-sub">KOR_ 시트를 자동으로 읽고, GPT로 일본어 가이드 초안을 만듭니다.</div>
-                {createState.fileName ? <div style={{ marginTop: 10, fontSize: 12 }}>선택됨: {createState.fileName}</div> : null}
-              </label>
+                <div className="upload-sub">파일을 선택하면 KOR_ 시트를 읽고 GPT 초안을 자동 생성합니다.</div>
+                <input
+                  className="form-input"
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleCreateExcelUpload}
+                  disabled={createBusy}
+                />
+                {createState.fileName ? <div style={{ marginTop: 4, fontSize: 12 }}>선택됨: {createState.fileName}</div> : null}
+              </div>
 
               {createState.parsed ? (
                 <div className="parsed-summary">
@@ -997,7 +1008,7 @@ export default function AdminDashboard() {
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
                 <button className="btn btn-ghost" type="button" onClick={() => setIsCreateOpen(false)}>취소</button>
-                <button className="btn btn-ghost" type="button" onClick={generateCreatePreview} disabled={createBusy || !createState.parsed}>{createBusy ? "처리 중..." : "GPT 초안 생성"}</button>
+                <button className="btn btn-ghost" type="button" onClick={generateCreatePreview} disabled={createBusy || !createState.parsed}>{createBusy ? "처리 중..." : "GPT 초안 다시 생성"}</button>
                 <button className="btn btn-primary" type="button" onClick={createCampaignFromPreview} disabled={createBusy || !createPreview}>캠페인 저장</button>
               </div>
             </div>

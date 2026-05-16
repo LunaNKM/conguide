@@ -159,6 +159,7 @@ export default function TabEditor({ token }: { token: string }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("가이드 데이터를 불러오는 중입니다.");
   const [error, setError] = useState("");
+  const [translatingKey, setTranslatingKey] = useState<string>("");
   const [importing, setImporting] = useState(false);
   const [parsedSheet, setParsedSheet] = useState<ParsedOrientSheet | null>(null);
   const [importWarning, setImportWarning] = useState("");
@@ -353,6 +354,43 @@ export default function TabEditor({ token }: { token: string }) {
     }
   }
 
+  async function translateKoreanItemField(sectionType: SectionType, itemId: string, field: "titleKo" | "bodyKo", value: string) {
+    const source = value.trim();
+    if (!source) return;
+
+    const key = `${itemId}_${field}`;
+    setTranslatingKey(key);
+    setError("");
+    setMessage("한국어 입력 내용을 일본어로 자동 번역 중입니다...");
+
+    try {
+      const response = await fetch("/api/translate/field", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: source,
+          field,
+          context: {
+            sectionType,
+            brandName: draft?.brandName ?? "",
+            productName: draft?.productName ?? ""
+          }
+        })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "자동 번역에 실패했습니다.");
+
+      const translated = String(result.translated ?? "").trim();
+      if (!translated) return;
+      updateItem(sectionType, itemId, field === "titleKo" ? { titleJa: translated } : { bodyJa: translated });
+      setMessage(result.mode === "openai" ? "한국어 입력 내용을 일본어로 자동 번역했습니다." : "OPENAI_API_KEY가 없어 한국어 원문을 임시로 일본어 표시란에 넣었습니다.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "자동 번역 중 오류가 발생했습니다.");
+    } finally {
+      setTranslatingKey("");
+    }
+  }
+
   async function handleOrientSheetUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -491,10 +529,7 @@ export default function TabEditor({ token }: { token: string }) {
                 <p>KOR_ 시트를 읽어 GPT로 일본어 가이드 문구를 정리합니다. コンテンツの必須事項은 기존 요구대로 직접 작성합니다.</p>
               </div>
               <div className="action-row">
-                <label className="btn btn-ghost file-button">
-                  XLSX 선택
-                  <input type="file" accept=".xlsx,.xls" onChange={handleOrientSheetUpload} />
-                </label>
+                <input className="form-input" type="file" accept=".xlsx,.xls" onChange={handleOrientSheetUpload} disabled={importing} />
                 <button className="btn btn-primary" type="button" onClick={generateFromParsedSheet} disabled={importing || !parsedSheet}>
                   {importing ? "처리 중..." : "GPT 정리 반영"}
                 </button>
@@ -554,7 +589,13 @@ export default function TabEditor({ token }: { token: string }) {
                       </div>
                     </div>
                     <div className="form-grid two">
-                      <Field label="한국어 제목" value={item.titleKo ?? ""} onChange={(value) => updateItem(activeSection, item.id, { titleKo: value })} />
+                      <Field
+                        label="한국어 제목"
+                        value={item.titleKo ?? ""}
+                        onChange={(value) => updateItem(activeSection, item.id, { titleKo: value })}
+                        onBlur={(value) => translateKoreanItemField(activeSection, item.id, "titleKo", value)}
+                        helper={translatingKey === `${item.id}_titleKo` ? "자동 번역 중..." : "입력 후 포커스를 벗어나면 일본어 제목이 자동 입력됩니다."}
+                      />
                       <Field label="일본어 제목" value={item.titleJa} onChange={(value) => updateItem(activeSection, item.id, { titleJa: value })} />
                       <label className="field-label">
                         항목 타입
@@ -564,7 +605,13 @@ export default function TabEditor({ token }: { token: string }) {
                       </label>
                     </div>
                     <div className="form-grid two">
-                      <TextArea label="한국어 원문" value={item.bodyKo ?? ""} onChange={(value) => updateItem(activeSection, item.id, { bodyKo: value })} />
+                      <TextArea
+                        label="한국어 원문"
+                        value={item.bodyKo ?? ""}
+                        onChange={(value) => updateItem(activeSection, item.id, { bodyKo: value })}
+                        onBlur={(value) => translateKoreanItemField(activeSection, item.id, "bodyKo", value)}
+                        helper={translatingKey === `${item.id}_bodyKo` ? "자동 번역 중..." : "입력 후 포커스를 벗어나면 일본어 표시문이 자동 입력됩니다."}
+                      />
                       <TextArea label="일본어 표시문" value={item.bodyJa} onChange={(value) => updateItem(activeSection, item.id, { bodyJa: value })} />
                     </div>
                     <div className="media-editor">
@@ -619,20 +666,59 @@ export default function TabEditor({ token }: { token: string }) {
   );
 }
 
-function Field({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
+function Field({
+  label,
+  value,
+  onChange,
+  onBlur,
+  type = "text",
+  helper
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onBlur?: (value: string) => void;
+  type?: string;
+  helper?: string;
+}) {
   return (
     <label className="field-label">
       {label}
-      <input className="form-input" type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input
+        className="form-input"
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onBlur={(event) => onBlur?.(event.target.value)}
+      />
+      {helper ? <span className="field-helper">{helper}</span> : null}
     </label>
   );
 }
 
-function TextArea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function TextArea({
+  label,
+  value,
+  onChange,
+  onBlur,
+  helper
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  onBlur?: (value: string) => void;
+  helper?: string;
+}) {
   return (
     <label className="field-label">
       {label}
-      <textarea className="form-textarea tall" value={value} onChange={(event) => onChange(event.target.value)} />
+      <textarea
+        className="form-textarea tall"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onBlur={(event) => onBlur?.(event.target.value)}
+      />
+      {helper ? <span className="field-helper">{helper}</span> : null}
     </label>
   );
 }
