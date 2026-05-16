@@ -9,12 +9,13 @@ import {
   getDocs,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
   writeBatch
 } from "firebase/firestore";
 import { getFirebaseDb, isFirebaseClientConfigured } from "@/lib/firebase/client";
-import type { CampaignStatus } from "@/types/guide";
+import type { CampaignStatus, GuideItem, GuideSection, GuideTab } from "@/types/guide";
 
 const statusLabel: Record<CampaignStatus, string> = {
   unpublished: "미공개",
@@ -85,6 +86,87 @@ async function deleteDocsByQuery(collectionName: string, field: string, value: s
     }
   }
   if (count > 0) await batch.commit();
+}
+
+function stripUndefined<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
+
+async function syncPublicGuideForCampaign(campaign: CampaignListRecord): Promise<string | null> {
+  if (!isFirebaseClientConfigured() || !campaign.firstShareToken) return null;
+
+  const db = getFirebaseDb();
+  const tabSnapshot = await getDocs(query(collection(db, "campaignTabs"), where("campaignId", "==", campaign.id)));
+  if (tabSnapshot.empty) throw new Error("공개 데이터로 만들 SKU 세부탭이 없습니다.");
+
+  const tabDoc = tabSnapshot.docs[0];
+  const tab = tabDoc.data();
+  const shareToken = String(tab.shareToken ?? campaign.firstShareToken);
+  const resolvedStatus = campaign.status === "published" ? "published" : "unpublished";
+
+  const sectionSnapshot = await getDocs(query(collection(db, "guideSections"), where("tabId", "==", tabDoc.id)));
+  const sections: GuideSection[] = [];
+
+  for (const sectionDoc of sectionSnapshot.docs) {
+    const section = sectionDoc.data();
+    const itemSnapshot = await getDocs(query(collection(db, "guideItems"), where("sectionId", "==", sectionDoc.id)));
+    const items: GuideItem[] = itemSnapshot.docs
+      .map((itemDoc) => {
+        const item = itemDoc.data();
+        return {
+          id: itemDoc.id,
+          titleKo: String(item.titleKo ?? ""),
+          bodyKo: String(item.bodyKo ?? ""),
+          titleJa: String(item.titleJa ?? ""),
+          bodyJa: String(item.bodyJa ?? ""),
+          itemType: String(item.itemType ?? "text") as GuideItem["itemType"],
+          sortOrder: Number(item.sortOrder ?? 0),
+          media: Array.isArray(item.media) ? item.media : []
+        };
+      })
+      .filter((item) => item.titleJa || item.bodyJa)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+
+    sections.push({
+      id: sectionDoc.id,
+      sectionType: String(section.sectionType ?? "basic") as GuideSection["sectionType"],
+      titleJa: String(section.titleJa ?? ""),
+      sortOrder: Number(section.sortOrder ?? 0),
+      isCollapsible: Boolean(section.isCollapsible),
+      items
+    });
+  }
+
+  const guide: GuideTab = {
+    id: tabDoc.id,
+    campaignId: campaign.id,
+    shareToken,
+    skuName: String(tab.skuName ?? ""),
+    productName: String(tab.productName ?? campaign.productName),
+    brandName: String(tab.brandName ?? campaign.brandName),
+    brandColor: String(tab.brandColor ?? campaign.brandColor),
+    heroTitle: String(tab.heroTitle ?? campaign.brandName),
+    heroSubtitle: String(tab.heroSubtitle ?? campaign.productName),
+    brandLogoUrl: String(tab.brandLogoUrl ?? ""),
+    brandLogoAlt: String(tab.brandLogoAlt ?? ""),
+    status: resolvedStatus,
+    hashtags: Array.isArray(tab.hashtags) ? tab.hashtags : [],
+    sections: sections.sort((a, b) => a.sortOrder - b.sortOrder)
+  };
+
+  await updateDoc(doc(db, "campaignTabs", tabDoc.id), {
+    status: resolvedStatus,
+    updatedAt: serverTimestamp()
+  });
+
+  await setDoc(doc(db, "publicGuides", shareToken), {
+    ...stripUndefined(guide),
+    shareToken,
+    status: resolvedStatus,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+
+  return shareToken;
 }
 
 export default function CampaignListPage({ currentUser = null, onLogout }: CampaignListPageProps) {
@@ -217,6 +299,33 @@ export default function CampaignListPage({ currentUser = null, onLogout }: Campa
       await loadCampaigns();
     } catch (err) {
       setError(err instanceof Error ? err.message : "삭제 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+
+  async function openShareGuide(campaign: CampaignListRecord) {
+    if (!campaign.firstShareToken) return;
+    if (campaign.archived) {
+      setError("아카이브된 캠페인은 공유 링크를 열 수 없습니다. 먼저 복구해 주세요.");
+      return;
+    }
+    if (campaign.status !== "published") {
+      setError("공유 링크는 공개 상태의 캠페인만 열 수 있습니다. 먼저 공개 상태로 변경해 주세요.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setMessage("공유 링크를 열기 전에 공개 데이터를 최신 상태로 동기화 중입니다...");
+
+    try {
+      const token = await syncPublicGuideForCampaign(campaign);
+      setMessage("공개 가이드 데이터를 확인했습니다. 공유 링크를 새 창으로 엽니다.");
+      window.open(`/guide/${token || campaign.firstShareToken}`, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "공유 링크 준비 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
@@ -364,7 +473,7 @@ export default function CampaignListPage({ currentUser = null, onLogout }: Campa
                       <td>{campaign.updatedAt}</td>
                       <td>
                         <div className="action-row">
-                          {guideUrl && !campaign.archived ? <a className="icon-btn" title="공유 링크 열기" href={guideUrl} target="_blank" rel="noreferrer">↗</a> : null}
+                          {guideUrl && !campaign.archived ? <button className="icon-btn" title="공유 링크 열기" type="button" onClick={() => openShareGuide(campaign)}>↗</button> : null}
                           {campaign.firstShareToken && !campaign.archived ? <a className="icon-btn" title="편집" href={`/admin/tabs/${campaign.firstShareToken}/edit`}>✎</a> : null}
                           {campaign.archived ? <button className="icon-btn" title="아카이브 복구" type="button" onClick={() => restoreCampaign(campaign)}>↩</button> : null}
                           <button className="icon-btn danger-icon-btn" title="완전 삭제" type="button" onClick={() => deleteCampaignPermanently(campaign)}>삭제</button>

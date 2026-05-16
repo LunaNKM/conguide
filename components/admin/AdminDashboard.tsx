@@ -626,11 +626,14 @@ export default function AdminDashboard({ currentUser = null, onLogout }: AdminDa
     }
   }
 
-  async function syncPublicGuide(campaign: DashboardCampaign) {
-    if (!isFirebaseClientConfigured() || !campaign.firstTabId || !campaign.firstShareToken) return;
-    setLoading(true);
+  async function syncPublicGuide(
+    campaign: DashboardCampaign,
+    options: { silent?: boolean; forcePublished?: boolean } = {}
+  ): Promise<GuideTab | null> {
+    if (!isFirebaseClientConfigured() || !campaign.firstTabId || !campaign.firstShareToken) return null;
+    if (!options.silent) setLoading(true);
     setError("");
-    setMessage("공개 가이드 데이터를 동기화 중입니다...");
+    if (!options.silent) setMessage("공개 가이드 데이터를 동기화 중입니다...");
 
     try {
       const db = getFirebaseDb();
@@ -672,6 +675,7 @@ export default function AdminDashboard({ currentUser = null, onLogout }: AdminDa
         });
       }
 
+      const resolvedStatus = options.forcePublished || campaign.status === "published" ? "published" : campaign.status;
       const guide = ensureFixedNotice({
         id: tabDoc.id,
         campaignId: campaign.id,
@@ -682,19 +686,53 @@ export default function AdminDashboard({ currentUser = null, onLogout }: AdminDa
         brandColor: String(tab.brandColor ?? campaign.brandColor),
         heroTitle: String(tab.heroTitle ?? campaign.brandName),
         heroSubtitle: String(tab.heroSubtitle ?? campaign.productName),
-        status: String(tab.status ?? campaign.status) as CampaignStatus,
+        brandLogoUrl: String(tab.brandLogoUrl ?? ""),
+        brandLogoAlt: String(tab.brandLogoAlt ?? ""),
+        status: resolvedStatus,
         hashtags: Array.isArray(tab.hashtags) ? tab.hashtags : [],
         sections: sections.sort((a, b) => a.sortOrder - b.sortOrder)
       });
 
+      await updateDoc(doc(db, "campaignTabs", tabDoc.id), {
+        status: resolvedStatus,
+        updatedAt: serverTimestamp()
+      });
+
       await setDoc(doc(db, "publicGuides", guide.shareToken), {
         ...stripUndefined(guide),
+        shareToken: guide.shareToken,
+        status: resolvedStatus,
         updatedAt: serverTimestamp()
       }, { merge: true });
 
-      setMessage("공개 가이드 데이터를 동기화했습니다. 공유 링크를 다시 열어보세요.");
+      if (!options.silent) setMessage("공개 가이드 데이터를 동기화했습니다. 공유 링크를 다시 열어보세요.");
+      return guide;
     } catch (err) {
       setError(err instanceof Error ? err.message : "공개 가이드 동기화 중 오류가 발생했습니다.");
+      return null;
+    } finally {
+      if (!options.silent) setLoading(false);
+    }
+  }
+
+
+  async function openShareGuide(campaign: DashboardCampaign) {
+    if (!campaign.firstShareToken) return;
+
+    if (campaign.status !== "published") {
+      setError("공유 링크는 공개 상태의 캠페인만 열 수 있습니다. 먼저 공개 상태로 변경해 주세요.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setMessage("공유 링크를 열기 전에 공개 데이터를 최신 상태로 동기화 중입니다...");
+
+    try {
+      const guide = await syncPublicGuide(campaign, { silent: true, forcePublished: true });
+      const token = guide?.shareToken || campaign.firstShareToken;
+      setMessage("공개 가이드 데이터를 확인했습니다. 공유 링크를 새 창으로 엽니다.");
+      window.open(`/guide/${token}`, "_blank", "noopener,noreferrer");
     } finally {
       setLoading(false);
     }
@@ -720,13 +758,13 @@ export default function AdminDashboard({ currentUser = null, onLogout }: AdminDa
       }
 
       if (campaign.firstShareToken) {
-        await setDoc(doc(db, "publicGuides", campaign.firstShareToken), {
-          status: nextStatus,
-          updatedAt: serverTimestamp()
-        }, { merge: true });
+        await syncPublicGuide(
+          { ...campaign, status: nextStatus },
+          { silent: true, forcePublished: nextStatus === "published" }
+        );
       }
 
-      setMessage(`${campaign.campaignName} 상태를 ${statusLabel[nextStatus]}로 변경했습니다.`);
+      setMessage(`${campaign.campaignName} 상태를 ${statusLabel[nextStatus]}로 변경하고 공개 데이터를 동기화했습니다.`);
       await loadCampaigns();
     } catch (err) {
       setError(err instanceof Error ? err.message : "상태 변경 중 오류가 발생했습니다.");
@@ -973,7 +1011,7 @@ export default function AdminDashboard({ currentUser = null, onLogout }: AdminDa
                       <td>{campaign.updatedAt}</td>
                       <td>
                         <div className="action-row">
-                          {guideUrl ? <a className="icon-btn" title="공유 링크 열기" href={guideUrl} target="_blank" rel="noreferrer">↗</a> : null}
+                          {guideUrl ? <button className="icon-btn" title="공유 링크 열기" type="button" onClick={() => openShareGuide(campaign)}>↗</button> : null}
                           {campaign.firstShareToken ? <a className="icon-btn" title="편집" href={`/admin/tabs/${campaign.firstShareToken}/edit`}>✎</a> : null}
                           <button className="icon-btn" title="공개" type="button" onClick={() => setCampaignStatus(campaign, "published")}>✓</button>
                           <button className="icon-btn" title="미공개" type="button" onClick={() => setCampaignStatus(campaign, "unpublished")}>–</button>
