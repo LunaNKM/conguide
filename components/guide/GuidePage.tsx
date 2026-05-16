@@ -13,25 +13,36 @@ const tabs: { key: SectionType; label: string }[] = [
 export default function GuidePage({ guide, embedded = false }: { guide: GuideTab; embedded?: boolean }) {
   const [activeTab, setActiveTab] = useState<SectionType>("basic");
   const section = useMemo(
-    () => guide.sections.find((item) => item.sectionType === activeTab) ?? guide.sections[0],
+    () => guide.sections.find((item) => item.sectionType === activeTab) ?? guide.sections[0] ?? null,
     [activeTab, guide.sections]
   );
+  const items = section?.items ?? [];
 
   async function copyLink() {
     const url = typeof window !== "undefined" ? window.location.href : guide.shareToken;
-    await navigator.clipboard?.writeText(url);
-    alert("リンクをコピーしました");
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        alert("リンクをコピーしました");
+        return;
+      }
+    } catch {
+      // 일부 모바일 브라우저에서는 clipboard 권한이 막힐 수 있어 아래 안내로 대체합니다.
+    }
+
+    window.prompt("リンクをコピーしてください", url);
   }
 
   return (
-    <div className="guide-body" style={{ ["--brand" as string]: guide.brandColor }}>
+    <div className="guide-body" style={{ ["--brand" as string]: guide.brandColor || "#2D5A3D" }}>
       <header className="guide-hero">
         <span className="hero-label">Influencer Guide</span>
-        <h1 className="hero-brand">{guide.heroTitle}</h1>
+        <h1 className="hero-brand">{guide.heroTitle || "Influencer Guide"}</h1>
         <p className="hero-product">{guide.heroSubtitle}</p>
         <div className="hero-meta">
-          <span className="hero-tag">{guide.brandName}</span>
-          <span className="hero-tag">{guide.skuName}</span>
+          {guide.brandName ? <span className="hero-tag">{guide.brandName}</span> : null}
+          {guide.skuName ? <span className="hero-tag">{guide.skuName}</span> : null}
         </div>
       </header>
 
@@ -50,9 +61,9 @@ export default function GuidePage({ guide, embedded = false }: { guide: GuideTab
 
       <main className="guide-content">
         {activeTab === "basic" ? (
-          <BasicSection items={section.items} hashtags={guide.hashtags} />
+          <BasicSection items={items} hashtags={guide.hashtags ?? []} />
         ) : (
-          <AccordionSection items={section.items} defaultOpenFirst={activeTab === "notice"} />
+          <AccordionSection items={items} defaultOpenFirst={activeTab === "notice"} />
         )}
       </main>
 
@@ -69,19 +80,19 @@ function BasicSection({ items, hashtags }: { items: GuideItem[]; hashtags: strin
       <div className="guide-card">
         <div className="card-header"><div className="card-title">ブランド・製品情報</div></div>
         <div className="card-body">
-          {items.map((item) => (
+          {items.length ? items.map((item) => (
             <div className="info-row" key={item.id}>
               <span className="info-label">{item.titleJa}</span>
               <span className="info-value">{item.bodyJa}</span>
             </div>
-          ))}
+          )) : <p className="empty-text">表示できる基本情報がまだありません。</p>}
         </div>
       </div>
       <div className="guide-card">
         <div className="card-header"><div className="card-title">必須ハッシュタグ</div></div>
         <div className="card-body">
           <div className="hashtag-wrap">
-            {hashtags.map((tag) => <span className="hashtag" key={tag}>{tag}</span>)}
+            {hashtags.length ? hashtags.map((tag) => <span className="hashtag" key={tag}>{tag}</span>) : <span className="empty-text">指定ハッシュタグはまだありません。</span>}
           </div>
         </div>
       </div>
@@ -96,6 +107,10 @@ function AccordionSection({ items, defaultOpenFirst }: { items: GuideItem[]; def
     setOpenIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
 
+  if (!items.length) {
+    return <div className="guide-card"><div className="card-body"><p className="empty-text">表示できる項目がまだありません。</p></div></div>;
+  }
+
   return (
     <div>
       {items.map((item) => {
@@ -107,14 +122,17 @@ function AccordionSection({ items, defaultOpenFirst }: { items: GuideItem[]; def
               <span>{open ? "−" : "+"}</span>
             </button>
             <div className={`accordion-detail ${open ? "open" : ""}`}>
-              <MarkdownLite text={item.bodyJa} />
+              <MarkdownLite text={item.bodyJa ?? ""} />
               {item.media?.length ? (
                 <div className="hashtag-wrap" style={{ marginTop: 12 }}>
-                  {item.media.map((media) => (
-                    <a className="hashtag" key={media.id} href={media.externalUrl ?? media.fileUrl} target="_blank" rel="noreferrer">
-                      {media.title ?? media.mediaType}
-                    </a>
-                  ))}
+                  {item.media.map((media) => {
+                    const href = media.externalUrl ?? media.fileUrl ?? "#";
+                    return (
+                      <a className="hashtag" key={media.id} href={href} target="_blank" rel="noreferrer">
+                        {media.title || media.mediaType}
+                      </a>
+                    );
+                  })}
                 </div>
               ) : null}
             </div>

@@ -9,7 +9,7 @@ interface AuthGateProps {
   children: React.ReactNode;
 }
 
-type AuthState = "checking" | "demo" | "signedOut" | "allowed" | "denied";
+type AuthState = "checking" | "demo" | "signedOut" | "allowed" | "denied" | "error";
 
 export default function AuthGate({ children }: AuthGateProps) {
   const configured = useMemo(() => isFirebaseClientConfigured(), []);
@@ -20,38 +20,59 @@ export default function AuthGate({ children }: AuthGateProps) {
   useEffect(() => {
     if (!configured) return;
 
-    const auth = getFirebaseAuth();
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
+    let unsubscribe: (() => void) | undefined;
 
-      if (!currentUser?.email) {
-        setState("signedOut");
-        return;
-      }
+    try {
+      const auth = getFirebaseAuth();
+      unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+        setUser(currentUser);
 
-      try {
-        const db = getFirebaseDb();
-        const allowedRef = doc(db, "allowedAdmins", currentUser.email.toLowerCase());
-        const allowedDoc = await getDoc(allowedRef);
-        setState(allowedDoc.exists() ? "allowed" : "denied");
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "관리자 확인 중 오류가 발생했습니다.");
-        setState("denied");
-      }
-    });
+        if (!currentUser?.email) {
+          setState("signedOut");
+          return;
+        }
 
-    return () => unsubscribe();
+        try {
+          const db = getFirebaseDb();
+          const email = currentUser.email.toLowerCase();
+          const allowedRef = doc(db, "allowedAdmins", email);
+          const allowedDoc = await getDoc(allowedRef);
+          setState(allowedDoc.exists() ? "allowed" : "denied");
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "관리자 확인 중 오류가 발생했습니다.");
+          setState("denied");
+        }
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Firebase 초기화 중 오류가 발생했습니다.");
+      setState("error");
+    }
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, [configured]);
 
   async function handleLogin() {
     setError("");
-    const auth = getFirebaseAuth();
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+
+    try {
+      const auth = getFirebaseAuth();
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Google 로그인 중 오류가 발생했습니다.";
+      setError(message);
+      setState("signedOut");
+    }
   }
 
   async function handleLogout() {
-    await signOut(getFirebaseAuth());
+    try {
+      await signOut(getFirebaseAuth());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "로그아웃 중 오류가 발생했습니다.");
+    }
   }
 
   if (state === "demo") {
@@ -69,11 +90,20 @@ export default function AuthGate({ children }: AuthGateProps) {
     return <FullPageMessage title="관리자 확인 중" body="Google 로그인 상태와 관리자 허용 이메일을 확인하고 있습니다." />;
   }
 
+  if (state === "error") {
+    return (
+      <FullPageMessage
+        title="Firebase 설정 오류"
+        body={`Firebase 연결 설정을 확인해야 합니다. ${error}`}
+      />
+    );
+  }
+
   if (state === "signedOut") {
     return (
       <FullPageMessage
         title="G-Futures Ops 로그인"
-        body="관리자 페이지에 접근하려면 Google 로그인이 필요합니다."
+        body={error ? `로그인이 필요합니다. 오류: ${error}` : "관리자 페이지에 접근하려면 Google 로그인이 필요합니다."}
         action={<button className="btn btn-primary" onClick={handleLogin}>Google로 로그인</button>}
       />
     );
