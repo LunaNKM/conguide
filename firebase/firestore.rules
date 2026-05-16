@@ -1,0 +1,51 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function allowedAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/allowedAdmins/$(request.auth.token.email));
+    }
+
+    match /allowedAdmins/{email} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /campaigns/{campaignId} {
+      allow read, write: if allowedAdmin();
+    }
+
+    match /campaignTabs/{tabId} {
+      allow read: if resource.data.status == 'published' || allowedAdmin();
+      allow write: if allowedAdmin();
+
+      match /sections/{sectionId} {
+        allow read: if get(/databases/$(database)/documents/campaignTabs/$(tabId)).data.status == 'published' || allowedAdmin();
+        allow write: if allowedAdmin();
+
+        match /items/{itemId} {
+          allow read: if get(/databases/$(database)/documents/campaignTabs/$(tabId)).data.status == 'published' || allowedAdmin();
+          allow write: if allowedAdmin();
+
+          match /media/{mediaId} {
+            allow read: if get(/databases/$(database)/documents/campaignTabs/$(tabId)).data.status == 'published' || allowedAdmin();
+            allow write: if allowedAdmin();
+          }
+        }
+      }
+    }
+
+    match /glossaryGlobal/{id} {
+      allow read, write: if allowedAdmin();
+    }
+
+    match /systemTemplates/{id} {
+      allow read: if true;
+      allow write: if allowedAdmin();
+    }
+  }
+}

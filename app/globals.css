@@ -130,3 +130,56 @@ tr:last-child td { border-bottom:0; }
   .search-row { flex-direction:column; }
   .landing-card h1 { font-size:26px; }
 }
+
+/* Auth / setup */
+.setup-banner {
+  background:#FBF0E4;
+  color:#7A4A1A;
+  border-bottom:1px solid #E8D5A0;
+  padding:10px 16px;
+  font-size:13px;
+  text-align:center;
+}
+.setup-banner.success {
+  background:#EAF3EE;
+  color:#1A3D28;
+  border-bottom-color:#BCD8C5;
+}
+.mini-link {
+  margin-left:12px;
+  border:0;
+  background:transparent;
+  color:inherit;
+  text-decoration:underline;
+  cursor:pointer;
+  font:inherit;
+}
+.auth-page,
+.not-found-page {
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:var(--bg);
+  padding:24px;
+}
+.auth-card {
+  max-width:460px;
+  width:100%;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  padding:28px;
+  text-align:center;
+}
+.auth-card h1 {
+  font-size:24px;
+  margin-bottom:10px;
+}
+.auth-card p {
+  color:var(--text-2);
+  font-size:14px;
+}
+.auth-action {
+  margin-top:18px;
+}
