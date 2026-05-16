@@ -17,7 +17,6 @@ import { getFirebaseDb, isFirebaseClientConfigured } from "@/lib/firebase/client
 import { FIXED_SHOOTING_NOTICE_JA } from "@/lib/constants";
 import { mockCampaigns, mockGuideTab } from "@/lib/mock-data";
 import { mergeGeneratedGuide, parseOrientSheetFile, type ParsedOrientSheet } from "@/lib/guide-import";
-import GuidePage from "@/components/guide/GuidePage";
 import type { CampaignStatus, CampaignSummary, GuideItem, GuideSection, GuideTab } from "@/types/guide";
 
 const statusLabel: Record<CampaignStatus, string> = {
@@ -847,7 +846,7 @@ export default function AdminDashboard() {
       <aside className="sidebar">
         <div className="sidebar-logo">
           <div className="wordmark">G-Futures Ops</div>
-          <div className="sidebar-sub">Influencer Guide System</div>
+          <div className="sidebar-sub">Influencer Guide OS</div>
         </div>
         <nav className="sidebar-nav">
           <div className="nav-label">Main</div>
@@ -866,10 +865,9 @@ export default function AdminDashboard() {
 
       <main className="admin-main">
         <div className="topbar">
-          <strong>캠페인 관리</strong>
+          <strong>Campaign Operations</strong>
           <div className="topbar-right">
             <button className="btn btn-ghost" type="button" onClick={loadCampaigns} disabled={loading}>새로고침</button>
-            <button className="btn btn-ghost" type="button" onClick={createSampleData} disabled={loading}>샘플 데이터</button>
             <button className="btn btn-primary" type="button" onClick={openCreateModal} disabled={loading}>새 캠페인</button>
           </div>
         </div>
@@ -877,7 +875,7 @@ export default function AdminDashboard() {
         <div className="page">
           <div className="page-header">
             <h1>캠페인 목록</h1>
-            <p>새 캠페인은 오리엔시트 XLSX 업로드를 기준으로 자동 초안을 생성합니다.</p>
+            <p>오리엔시트 업로드부터 공유 링크 생성까지 한 화면에서 관리합니다.</p>
           </div>
 
           <div className={`setup-banner ${error ? "danger" : "success"}`}>
@@ -964,20 +962,6 @@ export default function AdminDashboard() {
             </table>
           </section>
 
-          <section className="editor-grid">
-            <div className="editor-card">
-              <h3>운영 흐름</h3>
-              <div className="form-grid">
-                <textarea className="form-textarea" readOnly value="1. 새 캠페인 클릭\n2. 오리엔시트 XLSX 업로드\n3. GPT 초안 자동 생성\n4. 캠페인 저장\n5. ✎ 버튼으로 세부 편집\n6. /guide/{token} 공유" />
-                <button className="btn btn-primary" type="button" onClick={openCreateModal} disabled={loading}>오리엔시트로 새 캠페인 만들기</button>
-              </div>
-            </div>
-            <div className="preview-phone" aria-label="휴대폰 크기 미리보기">
-              <div className="preview-screen">
-                <GuidePage guide={createPreview ?? mockGuideTab} embedded />
-              </div>
-            </div>
-          </section>
         </div>
       </main>
 
