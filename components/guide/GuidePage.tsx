@@ -12,6 +12,8 @@ const tabs: { key: SectionType; label: string }[] = [
 
 export default function GuidePage({ guide, embedded = false }: { guide: GuideTab; embedded?: boolean }) {
   const [activeTab, setActiveTab] = useState<SectionType>("basic");
+  const [copied, setCopied] = useState(false);
+
   const section = useMemo(
     () => guide.sections.find((item) => item.sectionType === activeTab) ?? guide.sections[0],
     [activeTab, guide.sections]
@@ -19,16 +21,25 @@ export default function GuidePage({ guide, embedded = false }: { guide: GuideTab
 
   async function copyLink() {
     const url = typeof window !== "undefined" ? window.location.href : guide.shareToken;
-    await navigator.clipboard?.writeText(url);
-    alert("リンクをコピーしました");
+    try {
+      await navigator.clipboard?.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // fall back silently
+    }
   }
 
   return (
-    <div className="guide-body" style={{ ["--brand" as string]: guide.brandColor || "#2D5A3D" }}>
+    <div className="guide-body" style={{ ["--brand" as string]: guide.brandColor || "#1F4A35" }}>
       <header className="guide-hero">
         {guide.brandLogoUrl ? (
           <div className="hero-logo-wrap" aria-label="Brand logo">
-            <img className="hero-logo" src={guide.brandLogoUrl} alt={guide.brandLogoAlt || `${guide.brandName || guide.heroTitle || "Brand"} logo`} />
+            <img
+              className="hero-logo"
+              src={guide.brandLogoUrl}
+              alt={guide.brandLogoAlt || `${guide.brandName || guide.heroTitle || "Brand"} logo`}
+            />
           </div>
         ) : null}
         <span className="hero-label">Influencer Guide</span>
@@ -64,7 +75,13 @@ export default function GuidePage({ guide, embedded = false }: { guide: GuideTab
       </main>
 
       {!embedded && (
-        <button className="fab" type="button" onClick={copyLink}>リンクをコピー</button>
+        <button
+          className={`fab ${copied ? "fab-copied" : ""}`}
+          type="button"
+          onClick={copyLink}
+        >
+          {copied ? "コピーしました" : "リンクをコピー"}
+        </button>
       )}
     </div>
   );
@@ -73,7 +90,9 @@ export default function GuidePage({ guide, embedded = false }: { guide: GuideTab
 function EmptyState() {
   return (
     <div className="guide-card">
-      <div className="card-body">表示できる項目がまだありません。</div>
+      <div className="card-body" style={{ color: "var(--c-ink-3)", padding: "32px 20px", textAlign: "center" }}>
+        表示できる項目がまだありません。
+      </div>
     </div>
   );
 }
@@ -82,21 +101,40 @@ function BasicSection({ items, hashtags }: { items: GuideItem[]; hashtags: strin
   return (
     <>
       <div className="guide-card">
-        <div className="card-header"><div className="card-title">ブランド・製品情報</div></div>
+        <div className="card-header">
+          <div className="card-title">ブランド・製品情報</div>
+        </div>
         <div className="card-body">
-          {items.length ? items.map((item) => (
-            <div className="info-row" key={item.id}>
-              <span className="info-label">{item.titleJa}</span>
-              <span className="info-value"><MarkdownLite text={item.bodyJa} inline /></span>
-            </div>
-          )) : <p>表示できる項目がまだありません。</p>}
+          {items.length ? (
+            items.map((item) => (
+              <div className="info-row" key={item.id}>
+                <span className="info-label">{item.titleJa}</span>
+                <span className="info-value">
+                  <MarkdownLite text={item.bodyJa} inline />
+                </span>
+              </div>
+            ))
+          ) : (
+            <p style={{ color: "var(--c-ink-3)", fontSize: 13 }}>表示できる項目がまだありません。</p>
+          )}
         </div>
       </div>
+
       <div className="guide-card">
-        <div className="card-header"><div className="card-title">必須ハッシュタグ</div></div>
+        <div className="card-header">
+          <div className="card-title">必須ハッシュタグ</div>
+        </div>
         <div className="card-body">
           <div className="hashtag-wrap">
-            {(hashtags ?? []).length ? hashtags.map((tag) => <span className="hashtag" key={tag}>{tag}</span>) : <span className="hashtag">#PR</span>}
+            {(hashtags ?? []).length ? (
+              hashtags.map((tag) => (
+                <span className="hashtag" key={tag}>
+                  {tag}
+                </span>
+              ))
+            ) : (
+              <span className="hashtag">#PR</span>
+            )}
           </div>
         </div>
       </div>
@@ -104,11 +142,21 @@ function BasicSection({ items, hashtags }: { items: GuideItem[]; hashtags: strin
   );
 }
 
-function AccordionSection({ items, defaultOpenFirst }: { items: GuideItem[]; defaultOpenFirst?: boolean }) {
-  const [openIds, setOpenIds] = useState<string[]>(defaultOpenFirst && items[0] ? [items[0].id] : []);
+function AccordionSection({
+  items,
+  defaultOpenFirst
+}: {
+  items: GuideItem[];
+  defaultOpenFirst?: boolean;
+}) {
+  const [openIds, setOpenIds] = useState<string[]>(
+    defaultOpenFirst && items[0] ? [items[0].id] : []
+  );
 
   function toggle(id: string) {
-    setOpenIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+    setOpenIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+    );
   }
 
   if (!items.length) return <EmptyState />;
@@ -119,11 +167,24 @@ function AccordionSection({ items, defaultOpenFirst }: { items: GuideItem[]; def
         const open = openIds.includes(item.id);
         return (
           <div key={item.id}>
-            <button type="button" className={`accordion-btn accordion-${item.textSize ?? "normal"} ${item.emphasize ? "emphasize" : ""} ${open ? "open" : ""}`} onClick={() => toggle(item.id)}>
+            <button
+              type="button"
+              className={`accordion-btn accordion-${item.textSize ?? "normal"} ${
+                item.emphasize ? "emphasize" : ""
+              } ${open ? "open" : ""}`}
+              onClick={() => toggle(item.id)}
+              aria-expanded={open}
+            >
               <strong className="accordion-title">{item.titleJa || "項目"}</strong>
-              <span className="accordion-toggle">{open ? "−" : "+"}</span>
+              <span className="accordion-toggle" aria-hidden>
+                {open ? "−" : "+"}
+              </span>
             </button>
-            <div className={`accordion-detail detail-${item.textSize ?? "normal"} ${item.emphasize ? "emphasize" : ""} ${open ? "open" : ""}`}>
+            <div
+              className={`accordion-detail detail-${item.textSize ?? "normal"} ${
+                item.emphasize ? "emphasize" : ""
+              } ${open ? "open" : ""}`}
+            >
               <MarkdownLite text={item.bodyJa} />
               {item.media?.length ? <MediaList media={item.media} /> : null}
             </div>
@@ -159,7 +220,8 @@ function MediaList({ media }: { media: GuideMedia[] }) {
         }
         return (
           <a className="media-link" key={item.id} href={url} target="_blank" rel="noreferrer">
-            {title} →
+            <span>{title}</span>
+            <span aria-hidden>→</span>
           </a>
         );
       })}
@@ -186,10 +248,7 @@ function extractYoutubeId(url: string) {
 
 function MarkdownLite({ text, inline = false }: { text: string; inline?: boolean }) {
   const escapeHtml = (value: string) =>
-    value
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   const renderInline = (value: string) =>
     escapeHtml(value).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
