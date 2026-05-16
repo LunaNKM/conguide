@@ -843,6 +843,7 @@ export default function AdminDashboard() {
                       <td>
                         <div className="action-row">
                           {guideUrl ? <a className="icon-btn" title="공유 링크 열기" href={guideUrl} target="_blank" rel="noreferrer">↗</a> : null}
+                          {campaign.firstShareToken ? <a className="icon-btn" title="편집" href={`/admin/tabs/${campaign.firstShareToken}/edit`}>✎</a> : null}
                           <button className="icon-btn" title="공개" type="button" onClick={() => setCampaignStatus(campaign, "published")}>✓</button>
                           <button className="icon-btn" title="미공개" type="button" onClick={() => setCampaignStatus(campaign, "unpublished")}>–</button>
                           <button className="icon-btn" title="공개 데이터 동기화" type="button" onClick={() => syncPublicGuide(campaign)}>⟳</button>

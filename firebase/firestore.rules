@@ -7,12 +7,9 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function adminDocPath() {
-      return /databases/$(database)/documents/allowedAdmins/$(request.auth.token.email);
-    }
-
     function isAllowedAdmin() {
-      return isSignedIn() && exists(adminDocPath());
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/allowedAdmins/$(request.auth.token.email));
     }
 
     match /allowedAdmins/{email} {
@@ -41,8 +38,6 @@ service cloud.firestore {
       allow read, write: if isAllowedAdmin();
     }
 
-    // Public guide pages read exactly one prebuilt document by share token.
-    // This removes permission errors caused by multi-collection anonymous queries.
     match /publicGuides/{token} {
       allow get: if true;
       allow list: if isAllowedAdmin();

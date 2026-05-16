@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { GuideItem, GuideTab, SectionType } from "@/types/guide";
+import type { GuideItem, GuideMedia, GuideTab, SectionType } from "@/types/guide";
 
 const tabs: { key: SectionType; label: string }[] = [
   { key: "basic", label: "基本情報" },
@@ -13,33 +13,22 @@ const tabs: { key: SectionType; label: string }[] = [
 export default function GuidePage({ guide, embedded = false }: { guide: GuideTab; embedded?: boolean }) {
   const [activeTab, setActiveTab] = useState<SectionType>("basic");
   const section = useMemo(
-    () => guide.sections.find((item) => item.sectionType === activeTab) ?? guide.sections[0] ?? null,
+    () => guide.sections.find((item) => item.sectionType === activeTab) ?? guide.sections[0],
     [activeTab, guide.sections]
   );
-  const items = section?.items ?? [];
 
   async function copyLink() {
     const url = typeof window !== "undefined" ? window.location.href : guide.shareToken;
-
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
-        alert("リンクをコピーしました");
-        return;
-      }
-    } catch {
-      // 일부 모바일 브라우저에서는 clipboard 권한이 막힐 수 있어 아래 안내로 대체합니다.
-    }
-
-    window.prompt("リンクをコピーしてください", url);
+    await navigator.clipboard?.writeText(url);
+    alert("リンクをコピーしました");
   }
 
   return (
     <div className="guide-body" style={{ ["--brand" as string]: guide.brandColor || "#2D5A3D" }}>
       <header className="guide-hero">
         <span className="hero-label">Influencer Guide</span>
-        <h1 className="hero-brand">{guide.heroTitle || "Influencer Guide"}</h1>
-        <p className="hero-product">{guide.heroSubtitle}</p>
+        <h1 className="hero-brand">{guide.heroTitle || guide.brandName || "Guide"}</h1>
+        <p className="hero-product">{guide.heroSubtitle || guide.productName}</p>
         <div className="hero-meta">
           {guide.brandName ? <span className="hero-tag">{guide.brandName}</span> : null}
           {guide.skuName ? <span className="hero-tag">{guide.skuName}</span> : null}
@@ -60,16 +49,26 @@ export default function GuidePage({ guide, embedded = false }: { guide: GuideTab
       </nav>
 
       <main className="guide-content">
-        {activeTab === "basic" ? (
-          <BasicSection items={items} hashtags={guide.hashtags ?? []} />
+        {!section ? (
+          <EmptyState />
+        ) : activeTab === "basic" ? (
+          <BasicSection items={section.items} hashtags={guide.hashtags} />
         ) : (
-          <AccordionSection items={items} defaultOpenFirst={activeTab === "notice"} />
+          <AccordionSection items={section.items} defaultOpenFirst={false} />
         )}
       </main>
 
       {!embedded && (
         <button className="fab" type="button" onClick={copyLink}>リンクをコピー</button>
       )}
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="guide-card">
+      <div className="card-body">表示できる項目がまだありません。</div>
     </div>
   );
 }
@@ -83,16 +82,16 @@ function BasicSection({ items, hashtags }: { items: GuideItem[]; hashtags: strin
           {items.length ? items.map((item) => (
             <div className="info-row" key={item.id}>
               <span className="info-label">{item.titleJa}</span>
-              <span className="info-value">{item.bodyJa}</span>
+              <span className="info-value"><MarkdownLite text={item.bodyJa} inline /></span>
             </div>
-          )) : <p className="empty-text">表示できる基本情報がまだありません。</p>}
+          )) : <p>表示できる項目がまだありません。</p>}
         </div>
       </div>
       <div className="guide-card">
         <div className="card-header"><div className="card-title">必須ハッシュタグ</div></div>
         <div className="card-body">
           <div className="hashtag-wrap">
-            {hashtags.length ? hashtags.map((tag) => <span className="hashtag" key={tag}>{tag}</span>) : <span className="empty-text">指定ハッシュタグはまだありません。</span>}
+            {(hashtags ?? []).length ? hashtags.map((tag) => <span className="hashtag" key={tag}>{tag}</span>) : <span className="hashtag">#PR</span>}
           </div>
         </div>
       </div>
@@ -107,9 +106,7 @@ function AccordionSection({ items, defaultOpenFirst }: { items: GuideItem[]; def
     setOpenIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
   }
 
-  if (!items.length) {
-    return <div className="guide-card"><div className="card-body"><p className="empty-text">表示できる項目がまだありません。</p></div></div>;
-  }
+  if (!items.length) return <EmptyState />;
 
   return (
     <div>
@@ -118,23 +115,12 @@ function AccordionSection({ items, defaultOpenFirst }: { items: GuideItem[]; def
         return (
           <div key={item.id}>
             <button type="button" className={`accordion-btn ${open ? "open" : ""}`} onClick={() => toggle(item.id)}>
-              <strong>{item.titleJa}</strong>
+              <strong>{item.titleJa || "項目"}</strong>
               <span>{open ? "−" : "+"}</span>
             </button>
             <div className={`accordion-detail ${open ? "open" : ""}`}>
-              <MarkdownLite text={item.bodyJa ?? ""} />
-              {item.media?.length ? (
-                <div className="hashtag-wrap" style={{ marginTop: 12 }}>
-                  {item.media.map((media) => {
-                    const href = media.externalUrl ?? media.fileUrl ?? "#";
-                    return (
-                      <a className="hashtag" key={media.id} href={href} target="_blank" rel="noreferrer">
-                        {media.title || media.mediaType}
-                      </a>
-                    );
-                  })}
-                </div>
-              ) : null}
+              <MarkdownLite text={item.bodyJa} />
+              {item.media?.length ? <MediaList media={item.media} /> : null}
             </div>
           </div>
         );
@@ -143,7 +129,57 @@ function AccordionSection({ items, defaultOpenFirst }: { items: GuideItem[]; def
   );
 }
 
-function MarkdownLite({ text }: { text: string }) {
+function MediaList({ media }: { media: GuideMedia[] }) {
+  const validMedia = media.filter((item) => item.externalUrl || item.fileUrl);
+  if (!validMedia.length) return null;
+
+  return (
+    <div className="media-list">
+      {validMedia.map((item) => {
+        const url = item.externalUrl || item.fileUrl || "";
+        const title = item.title || labelForMedia(item);
+        if (item.mediaType === "image") {
+          return <img className="guide-media-image" key={item.id} src={url} alt={title} loading="lazy" />;
+        }
+        if (item.mediaType === "video" && item.fileUrl) {
+          return <video className="guide-media-video" key={item.id} src={url} controls playsInline />;
+        }
+        const youtubeId = item.mediaType === "youtube" ? extractYoutubeId(url) : null;
+        if (youtubeId) {
+          return (
+            <div className="youtube-frame" key={item.id}>
+              <iframe src={`https://www.youtube.com/embed/${youtubeId}`} title={title} allowFullScreen />
+            </div>
+          );
+        }
+        return (
+          <a className="media-link" key={item.id} href={url} target="_blank" rel="noreferrer">
+            {title} →
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
+function labelForMedia(media: GuideMedia) {
+  if (media.mediaType === "google_drive") return "Google Drive 資料";
+  if (media.mediaType === "youtube") return "YouTube 参考動画";
+  if (media.mediaType === "image") return "参考画像";
+  if (media.mediaType === "video") return "参考動画";
+  return "参考リンク";
+}
+
+function extractYoutubeId(url: string) {
+  const patterns = [/youtu\.be\/([^?&/]+)/, /youtube\.com\/watch\?v=([^?&/]+)/, /youtube\.com\/embed\/([^?&/]+)/];
+  for (const pattern of patterns) {
+    const match = url.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+function MarkdownLite({ text, inline = false }: { text: string; inline?: boolean }) {
   const escapeHtml = (value: string) =>
     value
       .replace(/&/g, "&amp;")
@@ -152,6 +188,8 @@ function MarkdownLite({ text }: { text: string }) {
 
   const renderInline = (value: string) =>
     escapeHtml(value).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+
+  if (inline) return <span dangerouslySetInnerHTML={{ __html: renderInline(text) }} />;
 
   const lines = text.split("\n");
   const htmlParts: string[] = [];
@@ -166,23 +204,18 @@ function MarkdownLite({ text }: { text: string }) {
 
   lines.forEach((line) => {
     const bullet = line.match(/^- (.*)$/);
-
     if (bullet) {
       listItems.push(`<li>${renderInline(bullet[1])}</li>`);
       return;
     }
-
     flushList();
-
     if (line.trim() === "") {
       htmlParts.push("<br />");
       return;
     }
-
     htmlParts.push(`<p>${renderInline(line)}</p>`);
   });
 
   flushList();
-
   return <div className="markdown-lite" dangerouslySetInnerHTML={{ __html: htmlParts.join("") }} />;
 }
