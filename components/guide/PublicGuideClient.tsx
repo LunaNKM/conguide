@@ -32,7 +32,11 @@ export default function PublicGuideClient({ token }: PublicGuideClientProps) {
         }
 
         const db = getFirebaseDb();
-        const tabQuery = query(collection(db, "campaignTabs"), where("shareToken", "==", token));
+        const tabQuery = query(
+          collection(db, "campaignTabs"),
+          where("shareToken", "==", token),
+          where("status", "==", "published")
+        );
         const tabSnapshot = await getDocs(tabQuery);
 
         if (tabSnapshot.empty) {
@@ -68,7 +72,13 @@ export default function PublicGuideClient({ token }: PublicGuideClientProps) {
           const items: GuideItem[] = [];
 
           for (const itemDoc of itemDocs) {
-            const mediaSnapshot = await getDocs(query(collection(db, "mediaAssets"), where("itemId", "==", itemDoc.id)));
+            const mediaSnapshot = await getDocs(
+              query(
+                collection(db, "mediaAssets"),
+                where("itemId", "==", itemDoc.id),
+                where("tabId", "==", tabDoc.id)
+              )
+            );
             const media: GuideMedia[] = mediaSnapshot.docs
               .map((mediaDoc) => {
                 const mediaData = mediaDoc.data();
