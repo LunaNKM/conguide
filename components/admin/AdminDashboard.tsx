@@ -871,7 +871,7 @@ export default function AdminDashboard({ currentUser = null, onLogout }: AdminDa
         <nav className="sidebar-nav">
           <div className="nav-label">Main</div>
           <a className="nav-item active" href="/admin">대시보드</a>
-          <a className="nav-item" href="#campaign-table">캠페인 목록</a>
+          <a className="nav-item" href="/admin/campaigns">캠페인 목록</a>
           <div className="nav-label">Settings</div>
           <a className="nav-item" href="/admin/glossary">전사 공통 용어집</a>
         </nav>
