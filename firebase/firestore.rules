@@ -7,9 +7,12 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function adminDocPath() {
+      return /databases/$(database)/documents/allowedAdmins/$(request.auth.token.email);
+    }
+
     function isAllowedAdmin() {
-      return isSignedIn()
-        && exists(/databases/$(database)/documents/allowedAdmins/$(request.auth.token.email));
+      return isSignedIn() && exists(adminDocPath());
     }
 
     match /allowedAdmins/{email} {

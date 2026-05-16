@@ -753,7 +753,7 @@ export default function AdminDashboard() {
           <div className="nav-item">SKU 세부탭</div>
           <div className="nav-label">Settings</div>
           <div className="nav-item">관리자 설정</div>
-          <div className="nav-item">전사 공통 용어집</div>
+          <a className="nav-item" href="/admin/glossary">전사 공통 용어집</a>
         </nav>
         <div className="sidebar-footer">
           <div className="user-row">

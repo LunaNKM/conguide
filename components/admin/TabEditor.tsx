@@ -1,11 +1,12 @@
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, serverTimestamp, setDoc } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import GuidePage from "@/components/guide/GuidePage";
 import { getFirebaseDb, getFirebaseStorage, isFirebaseClientConfigured } from "@/lib/firebase/client";
 import { FIXED_SHOOTING_NOTICE_JA } from "@/lib/constants";
+import { mergeGeneratedGuide, parseOrientSheetFile, type ParsedOrientSheet } from "@/lib/guide-import";
 import { mockGuideTab } from "@/lib/mock-data";
 import type { CampaignStatus, GuideItem, GuideMedia, GuideSection, GuideTab, MediaType, SectionType } from "@/types/guide";
 
@@ -158,6 +159,9 @@ export default function TabEditor({ token }: { token: string }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("가이드 데이터를 불러오는 중입니다.");
   const [error, setError] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [parsedSheet, setParsedSheet] = useState<ParsedOrientSheet | null>(null);
+  const [importWarning, setImportWarning] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -330,6 +334,71 @@ export default function TabEditor({ token }: { token: string }) {
     }
   }
 
+
+  async function readGlossary() {
+    if (!isFirebaseClientConfigured()) return [];
+    try {
+      const db = getFirebaseDb();
+      const snapshot = await getDocs(collection(db, "glossaryGlobal"));
+      return snapshot.docs.map((item) => {
+        const data = item.data() as Record<string, unknown>;
+        return {
+          korean: String(data.korean ?? ""),
+          japanese: String(data.japanese ?? ""),
+          category: String(data.category ?? "")
+        };
+      }).filter((item) => item.korean && item.japanese);
+    } catch {
+      return [];
+    }
+  }
+
+  async function handleOrientSheetUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setError("");
+    setImportWarning("");
+    try {
+      const parsed = await parseOrientSheetFile(file);
+      setParsedSheet(parsed);
+      setMessage(`${parsed.sheetName} 시트를 읽었습니다. GPT 자동 정리를 실행할 수 있습니다.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "오리엔시트 파일을 읽는 중 오류가 발생했습니다.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function generateFromParsedSheet() {
+    if (!draft || !parsedSheet) {
+      setError("먼저 XLSX 오리엔시트 파일을 업로드해 주세요.");
+      return;
+    }
+    setImporting(true);
+    setError("");
+    setImportWarning("");
+    setMessage("GPT로 일본어 가이드 데이터를 정리하는 중입니다...");
+    try {
+      const glossary = await readGlossary();
+      const response = await fetch("/api/generate/guide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parsed: parsedSheet, glossary })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "GPT 가이드 생성에 실패했습니다.");
+      const merged = mergeGeneratedGuide(draft, result.guide);
+      setDraft(merged);
+      if (result.warning) setImportWarning(result.warning);
+      setMessage(result.mode === "openai" ? "GPT 정리 결과를 편집 화면에 반영했습니다. 저장하면 공개 페이지에 반영됩니다." : "임시 정리 결과를 반영했습니다. OPENAI_API_KEY 설정 후 다시 생성할 수 있습니다.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "GPT 가이드 생성 중 오류가 발생했습니다.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   async function saveGuide() {
     if (!draft) return;
     if (!isFirebaseClientConfigured()) {
@@ -413,6 +482,34 @@ export default function TabEditor({ token }: { token: string }) {
 
         <div className="page">
           <div className={`setup-banner ${error ? "danger" : "success"}`}>{error ? `오류: ${error}` : message}</div>
+          {importWarning ? <div className="setup-banner warn">{importWarning}</div> : null}
+
+          <div className="editor-card import-card">
+            <div className="section-toolbar">
+              <div>
+                <h3>오리엔시트 XLSX 자동 입력</h3>
+                <p>KOR_ 시트를 읽어 GPT로 일본어 가이드 문구를 정리합니다. コンテンツの必須事項은 기존 요구대로 직접 작성합니다.</p>
+              </div>
+              <div className="action-row">
+                <label className="btn btn-ghost file-button">
+                  XLSX 선택
+                  <input type="file" accept=".xlsx,.xls" onChange={handleOrientSheetUpload} />
+                </label>
+                <button className="btn btn-primary" type="button" onClick={generateFromParsedSheet} disabled={importing || !parsedSheet}>
+                  {importing ? "처리 중..." : "GPT 정리 반영"}
+                </button>
+              </div>
+            </div>
+            {parsedSheet ? (
+              <div className="parsed-summary">
+                <strong>읽은 시트:</strong> {parsedSheet.sheetName}
+                <span>브랜드: {parsedSheet.fields.brandName || "미감지"}</span>
+                <span>상품명: {parsedSheet.fields.productName || "미감지"}</span>
+                <span>소구 포인트: {parsedSheet.appealPoints.length}개</span>
+                <span>해시태그: {parsedSheet.hashtags.join(" ") || "미감지"}</span>
+              </div>
+            ) : null}
+          </div>
 
           <div className="guide-edit-layout">
             <section className="guide-edit-panel">

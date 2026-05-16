@@ -336,3 +336,91 @@ tr:last-child td { border-bottom:0; }
     grid-template-columns:1fr;
   }
 }
+
+/* Remaining feature patch: XLSX import / GPT generation / glossary */
+.import-card {
+  margin-bottom: 18px;
+  border: 1px solid var(--border-strong, #c8c2b8);
+}
+
+.file-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.file-button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.parsed-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 12.5px;
+  color: var(--text-2, #5c5751);
+}
+
+.parsed-summary span,
+.parsed-summary strong {
+  border: 1px solid var(--border, #e2ddd5);
+  background: var(--surface-2, #f0ede7);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.setup-banner.warn {
+  background: #fff8e6;
+  border: 1px solid #e5c463;
+  color: #755300;
+}
+
+.form-grid.four {
+  grid-template-columns: 1fr 1fr 160px 90px;
+  align-items: end;
+}
+
+.glossary-submit {
+  height: 38px;
+  justify-content: center;
+}
+
+.glossary-table {
+  border: 1px solid var(--border, #e2ddd5);
+  border-radius: var(--radius-lg, 14px);
+  overflow: hidden;
+}
+
+.glossary-head,
+.glossary-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 140px 60px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border, #e2ddd5);
+  font-size: 13px;
+}
+
+.glossary-head {
+  background: var(--surface-2, #f0ede7);
+  color: var(--text-3, #9e9890);
+  font-weight: 600;
+}
+
+.glossary-row:last-child {
+  border-bottom: none;
+}
+
+@media (max-width: 900px) {
+  .form-grid.four {
+    grid-template-columns: 1fr;
+  }
+  .glossary-head,
+  .glossary-row {
+    grid-template-columns: 1fr;
+  }
+}
