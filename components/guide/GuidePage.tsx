@@ -26,6 +26,11 @@ export default function GuidePage({ guide, embedded = false }: { guide: GuideTab
   return (
     <div className="guide-body" style={{ ["--brand" as string]: guide.brandColor || "#2D5A3D" }}>
       <header className="guide-hero">
+        {guide.brandLogoUrl ? (
+          <div className="hero-logo-wrap" aria-label="Brand logo">
+            <img className="hero-logo" src={guide.brandLogoUrl} alt={guide.brandLogoAlt || `${guide.brandName || guide.heroTitle || "Brand"} logo`} />
+          </div>
+        ) : null}
         <span className="hero-label">Influencer Guide</span>
         <h1 className="hero-brand">{guide.heroTitle || guide.brandName || "Guide"}</h1>
         <p className="hero-product">{guide.heroSubtitle || guide.productName}</p>
@@ -114,11 +119,11 @@ function AccordionSection({ items, defaultOpenFirst }: { items: GuideItem[]; def
         const open = openIds.includes(item.id);
         return (
           <div key={item.id}>
-            <button type="button" className={`accordion-btn ${open ? "open" : ""}`} onClick={() => toggle(item.id)}>
-              <strong>{item.titleJa || "項目"}</strong>
-              <span>{open ? "−" : "+"}</span>
+            <button type="button" className={`accordion-btn accordion-${item.textSize ?? "normal"} ${item.emphasize ? "emphasize" : ""} ${open ? "open" : ""}`} onClick={() => toggle(item.id)}>
+              <strong className="accordion-title">{item.titleJa || "項目"}</strong>
+              <span className="accordion-toggle">{open ? "−" : "+"}</span>
             </button>
-            <div className={`accordion-detail ${open ? "open" : ""}`}>
+            <div className={`accordion-detail detail-${item.textSize ?? "normal"} ${item.emphasize ? "emphasize" : ""} ${open ? "open" : ""}`}>
               <MarkdownLite text={item.bodyJa} />
               {item.media?.length ? <MediaList media={item.media} /> : null}
             </div>

@@ -90,6 +90,31 @@ function stripUndefined<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
+
+function extractFirstUrlForLogo(text: string) {
+  const match = text.match(/https?:\/\/[^\s)"']+/i);
+  return match?.[0] ?? "";
+}
+
+function domainFromLogoUrl(url: string) {
+  try {
+    const parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
+    return parsed.hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function makeAutoLogoUrl(guide: GuideTab) {
+  const haystack = [guide.brandName, guide.productName, guide.heroSubtitle, ...guide.sections.flatMap((section) => section.items.flatMap((item) => [item.titleKo, item.bodyKo, item.titleJa, item.bodyJa]))]
+    .filter(Boolean)
+    .join("\n");
+  const domain = domainFromLogoUrl(extractFirstUrlForLogo(haystack));
+  if (domain) return `https://logo.clearbit.com/${domain}`;
+  const cleanColor = (guide.brandColor || "#2D5A3D").replace("#", "");
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(guide.brandName || guide.heroTitle || "Brand")}&background=${cleanColor}&color=fff&size=256&bold=true&format=png`;
+}
+
 function makeBlankGuide(params: {
   tabId: string;
   campaignId: string;
@@ -111,6 +136,8 @@ function makeBlankGuide(params: {
     brandColor,
     heroTitle: brandName,
     heroSubtitle: productName,
+    brandLogoUrl: "",
+    brandLogoAlt: `${brandName || "Brand"} logo`,
     status,
     hashtags: [],
     sections: [
@@ -464,13 +491,18 @@ export default function AdminDashboard() {
       if (!response.ok || !result.ok) throw new Error(result.error || "GPT 가이드 생성에 실패했습니다.");
 
       const merged = ensureFixedNotice(rewriteGuideIds(mergeGeneratedGuide(blank, result.guide), tabId, campaignId, shareToken));
-      const guide: GuideTab = {
+      const guideBase: GuideTab = {
         ...merged,
         brandColor: createState.brandColor,
         status: createState.status,
         campaignId,
         id: tabId,
         shareToken
+      };
+      const guide: GuideTab = {
+        ...guideBase,
+        brandLogoUrl: guideBase.brandLogoUrl || makeAutoLogoUrl(guideBase),
+        brandLogoAlt: guideBase.brandLogoAlt || `${guideBase.brandName || guideBase.heroTitle || "Brand"} logo`
       };
       setCreatePreview(guide);
       setCreateState((current) => ({

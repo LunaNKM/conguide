@@ -30,6 +30,8 @@ export interface GuideItem {
   itemType: "text" | "appeal" | "scene" | "notice" | "hashtag" | "link";
   sortOrder: number;
   media?: GuideMedia[];
+  textSize?: "small" | "normal" | "large";
+  emphasize?: boolean;
 }
 
 export interface GuideSection {
@@ -51,6 +53,8 @@ export interface GuideTab {
   brandColor: string;
   heroTitle: string;
   heroSubtitle: string;
+  brandLogoUrl?: string;
+  brandLogoAlt?: string;
   status: CampaignStatus;
   sections: GuideSection[];
   hashtags: string[];

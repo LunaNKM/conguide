@@ -57,6 +57,8 @@ function normalizeGuide(raw: Record<string, unknown>, token: string): GuideTab {
     brandColor: String(raw.brandColor ?? "#2D5A3D"),
     heroTitle: String(raw.heroTitle ?? raw.brandName ?? "Influencer Guide"),
     heroSubtitle: String(raw.heroSubtitle ?? raw.productName ?? ""),
+    brandLogoUrl: typeof raw.brandLogoUrl === "string" ? raw.brandLogoUrl : "",
+    brandLogoAlt: typeof raw.brandLogoAlt === "string" ? raw.brandLogoAlt : "",
     status: String(raw.status ?? "unpublished") as CampaignStatus,
     hashtags: Array.isArray(raw.hashtags) ? raw.hashtags.filter((item): item is string => typeof item === "string") : [],
     sections: sections.map((section, sectionIndex) => {
@@ -80,6 +82,8 @@ function normalizeGuide(raw: Record<string, unknown>, token: string): GuideTab {
             bodyJa: String(itemData.bodyJa ?? ""),
             itemType: String(itemData.itemType ?? "text") as GuideItem["itemType"],
             sortOrder: Number(itemData.sortOrder ?? itemIndex + 1),
+            textSize: ["small", "normal", "large"].includes(String(itemData.textSize ?? "")) ? String(itemData.textSize) as GuideItem["textSize"] : "normal",
+            emphasize: Boolean(itemData.emphasize),
             media: media.map((mediaItem) => {
               const mediaData = mediaItem as Record<string, unknown>;
               return {
@@ -105,6 +109,33 @@ function splitHashtags(value: string) {
     .map((item) => (item.startsWith("#") ? item : `#${item}`));
 }
 
+
+function extractFirstUrl(text: string) {
+  const match = text.match(/https?:\/\/[^\s)"']+/i);
+  return match?.[0] ?? "";
+}
+
+function domainFromUrl(url: string) {
+  try {
+    const parsed = new URL(url.startsWith("http") ? url : `https://${url}`);
+    return parsed.hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function makeAvatarLogoUrl(name: string, brandColor: string) {
+  const cleanColor = (brandColor || "#2D5A3D").replace("#", "");
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(name || "Brand")}&background=${cleanColor}&color=fff&size=256&bold=true&format=png`;
+}
+
+function findOfficialUrl(guide: GuideTab) {
+  const haystack = [guide.brandName, guide.productName, guide.heroSubtitle, ...guide.sections.flatMap((section) => section.items.flatMap((item) => [item.titleKo, item.bodyKo, item.titleJa, item.bodyJa]))]
+    .filter(Boolean)
+    .join("\n");
+  return extractFirstUrl(haystack);
+}
+
 function getSection(guide: GuideTab, sectionType: SectionType) {
   return guide.sections.find((section) => section.sectionType === sectionType);
 }
@@ -119,6 +150,8 @@ function makeEmptyItem(sectionType: SectionType, sortOrder: number): GuideItem {
     bodyJa: "",
     itemType,
     sortOrder,
+    textSize: "normal",
+    emphasize: false,
     media: []
   };
 }
@@ -336,6 +369,47 @@ export default function TabEditor({ token }: { token: string }) {
   }
 
 
+  async function uploadBrandLogoFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !draft) return;
+    if (!isFirebaseClientConfigured()) {
+      setError("Firebase Storage 설정 후 로고 업로드가 가능합니다.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const storage = getFirebaseStorage();
+      const ext = file.name.split(".").pop() ?? "png";
+      const path = `guide-assets/${draft.shareToken}/brand-logo/logo.${ext}`;
+      const fileRef = ref(storage, path);
+      await uploadBytes(fileRef, file);
+      const url = await getDownloadURL(fileRef);
+      updateDraft((next) => {
+        next.brandLogoUrl = url;
+        next.brandLogoAlt = `${next.brandName || next.heroTitle || "Brand"} logo`;
+      });
+      setMessage("회사 로고 업로드 완료. 저장하면 공유 페이지에 반영됩니다.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "로고 업로드 중 오류가 발생했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function autoApplyBrandLogo() {
+    if (!draft) return;
+    const officialUrl = findOfficialUrl(draft);
+    const domain = domainFromUrl(officialUrl);
+    const logoUrl = domain ? `https://logo.clearbit.com/${domain}` : makeAvatarLogoUrl(draft.brandName || draft.heroTitle || draft.productName, draft.brandColor);
+    updateDraft((next) => {
+      next.brandLogoUrl = logoUrl;
+      next.brandLogoAlt = `${next.brandName || next.heroTitle || "Brand"} logo`;
+    });
+    setMessage(domain ? `${domain} 기준으로 회사 로고를 자동 적용했습니다. 로고가 보이지 않으면 직접 업로드하거나 URL을 수정해 주세요.` : "공식 URL을 찾지 못해 브랜드명 기반 임시 로고를 적용했습니다. 실제 회사 로고는 직접 업로드하거나 URL로 교체해 주세요.");
+  }
+
+
   async function readGlossary() {
     if (!isFirebaseClientConfigured()) return [];
     try {
@@ -463,6 +537,8 @@ export default function TabEditor({ token }: { token: string }) {
         brandColor: cleaned.brandColor,
         heroTitle: cleaned.heroTitle,
         heroSubtitle: cleaned.heroSubtitle,
+        brandLogoUrl: cleaned.brandLogoUrl ?? "",
+        brandLogoAlt: cleaned.brandLogoAlt ?? "",
         status: cleaned.status,
         hashtags: cleaned.hashtags,
         updatedAt: serverTimestamp()
@@ -557,6 +633,16 @@ export default function TabEditor({ token }: { token: string }) {
                   <Field label="브랜드 컬러" value={draft.brandColor} type="color" onChange={(value) => updateGuideField("brandColor", value)} />
                   <Field label="히어로 제목" value={draft.heroTitle} onChange={(value) => updateGuideField("heroTitle", value)} />
                   <Field label="히어로 부제목" value={draft.heroSubtitle} onChange={(value) => updateGuideField("heroSubtitle", value)} />
+                  <Field label="회사 로고 URL" value={draft.brandLogoUrl ?? ""} onChange={(value) => updateGuideField("brandLogoUrl", value)} helper="공식 URL이 기본 정보 안에 있으면 자동 적용 버튼으로 로고 후보를 넣을 수 있습니다." />
+                  <Field label="로고 대체 텍스트" value={draft.brandLogoAlt ?? ""} onChange={(value) => updateGuideField("brandLogoAlt", value)} />
+                  <div className="field-label logo-upload-field">
+                    회사 로고 자동/수동 설정
+                    <div className="logo-control-row">
+                      <button className="btn btn-ghost" type="button" onClick={autoApplyBrandLogo}>로고 자동 적용</button>
+                      <input className="file-input" type="file" accept="image/*" onChange={uploadBrandLogoFile} />
+                    </div>
+                    {draft.brandLogoUrl ? <img className="admin-logo-preview" src={draft.brandLogoUrl} alt="logo preview" /> : <span className="field-helper">공유 모바일 화면 우상단에 표시됩니다.</span>}
+                  </div>
                   <label className="field-label">
                     상태
                     <select className="form-input" value={draft.status} onChange={(event) => updateGuideField("status", event.target.value as CampaignStatus)}>
@@ -602,6 +688,18 @@ export default function TabEditor({ token }: { token: string }) {
                         <select className="form-input" value={item.itemType} onChange={(event) => updateItem(activeSection, item.id, { itemType: event.target.value as GuideItem["itemType"] })}>
                           {(Object.keys(itemTypeLabels) as GuideItem["itemType"][]).map((type) => <option key={type} value={type}>{itemTypeLabels[type]}</option>)}
                         </select>
+                      </label>
+                      <label className="field-label">
+                        공유 화면 글자 크기
+                        <select className="form-input" value={item.textSize ?? "normal"} onChange={(event) => updateItem(activeSection, item.id, { textSize: event.target.value as GuideItem["textSize"] })}>
+                          <option value="small">작게</option>
+                          <option value="normal">기본</option>
+                          <option value="large">크게</option>
+                        </select>
+                      </label>
+                      <label className="field-label checkbox-field">
+                        <input type="checkbox" checked={Boolean(item.emphasize)} onChange={(event) => updateItem(activeSection, item.id, { emphasize: event.target.checked })} />
+                        이 항목 강조 표시
                       </label>
                     </div>
                     <div className="form-grid two">
@@ -655,7 +753,8 @@ export default function TabEditor({ token }: { token: string }) {
             </section>
 
             <aside className="preview-phone editor-preview" aria-label="휴대폰 크기 미리보기">
-              <div className="preview-screen">
+              <div className="preview-scroll-hint">미리보기 위에 마우스를 올리고 휠로 스크롤할 수 있습니다.</div>
+              <div className="preview-screen" onWheel={(event) => event.stopPropagation()}>
                 <GuidePage guide={draft} embedded />
               </div>
             </aside>
