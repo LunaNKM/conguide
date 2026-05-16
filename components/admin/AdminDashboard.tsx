@@ -1,9 +1,10 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   query,
   serverTimestamp,
@@ -15,6 +16,7 @@ import {
 import { getFirebaseDb, isFirebaseClientConfigured } from "@/lib/firebase/client";
 import { FIXED_SHOOTING_NOTICE_JA } from "@/lib/constants";
 import { mockCampaigns, mockGuideTab } from "@/lib/mock-data";
+import { mergeGeneratedGuide, parseOrientSheetFile, type ParsedOrientSheet } from "@/lib/guide-import";
 import GuidePage from "@/components/guide/GuidePage";
 import type { CampaignStatus, CampaignSummary, GuideItem, GuideSection, GuideTab } from "@/types/guide";
 
@@ -35,27 +37,19 @@ interface DashboardCampaign extends CampaignSummary {
   firstTabId?: string;
 }
 
-interface NewCampaignForm {
+interface ExcelCreateState {
+  fileName: string;
+  parsed: ParsedOrientSheet | null;
   campaignName: string;
-  brandName: string;
-  skuName: string;
-  productName: string;
   brandColor: string;
-  heroTitle: string;
-  heroSubtitle: string;
-  hashtags: string;
   status: CampaignStatus;
 }
 
-const emptyForm: NewCampaignForm = {
+const emptyExcelCreate: ExcelCreateState = {
+  fileName: "",
+  parsed: null,
   campaignName: "",
-  brandName: "",
-  skuName: "",
-  productName: "",
   brandColor: "#2D5A3D",
-  heroTitle: "",
-  heroSubtitle: "",
-  hashtags: "#PR #メガワリ",
   status: "unpublished"
 };
 
@@ -81,7 +75,7 @@ function slugify(value: string) {
 
 function splitHashtags(value: string) {
   return value
-    .split(/[\s,]+/)
+    .split(/[\s,，、]+/)
     .map((item) => item.trim())
     .filter(Boolean)
     .map((item) => (item.startsWith("#") ? item : `#${item}`));
@@ -92,166 +86,159 @@ function formatDate(date?: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function createDefaultSections(params: {
+function stripUndefined<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function makeBlankGuide(params: {
   tabId: string;
+  campaignId: string;
+  shareToken: string;
   brandName: string;
   productName: string;
   skuName: string;
-  hashtags: string[];
-}): GuideSection[] {
-  const { tabId, brandName, productName, skuName, hashtags } = params;
-  return [
-    {
-      id: `${tabId}_basic`,
-      sectionType: "basic",
-      titleJa: "基本情報",
-      sortOrder: 1,
-      isCollapsible: false,
-      items: [
-        {
-          id: `${tabId}_basic_brand`,
-          titleKo: "브랜드 정보",
-          bodyKo: brandName,
-          titleJa: "ブランド情報",
-          bodyJa: `${brandName} のインフルエンサーガイドです。`,
-          itemType: "text",
-          sortOrder: 1,
-          media: []
-        },
-        {
-          id: `${tabId}_basic_product`,
-          titleKo: "상품명",
-          bodyKo: productName,
-          titleJa: "商品名",
-          bodyJa: productName,
-          itemType: "text",
-          sortOrder: 2,
-          media: []
-        },
-        {
-          id: `${tabId}_basic_sku`,
-          titleKo: "SKU",
-          bodyKo: skuName,
-          titleJa: "SKU",
-          bodyJa: skuName,
-          itemType: "text",
-          sortOrder: 3,
-          media: []
-        }
-      ]
-    },
-    {
-      id: `${tabId}_product`,
-      sectionType: "product",
-      titleJa: "商品紹介および訴求ポイント",
-      sortOrder: 2,
-      isCollapsible: true,
-      items: [
-        {
-          id: `${tabId}_product_intro`,
-          titleKo: "상품 소개",
-          bodyKo: "관리자 화면에서 수정해 주세요.",
-          titleJa: "商品の紹介",
-          bodyJa: "商品の特徴や訴求ポイントを、ここに整理して記載してください。",
-          itemType: "text",
-          sortOrder: 1,
-          media: []
-        },
-        {
-          id: `${tabId}_product_hashtags`,
-          titleKo: "필수 해시태그",
-          bodyKo: hashtags.join(" "),
-          titleJa: "必須ハッシュタグ",
-          bodyJa: hashtags.join(" "),
-          itemType: "hashtag",
-          sortOrder: 2,
-          media: []
-        }
-      ]
-    },
-    {
-      id: `${tabId}_content`,
-      sectionType: "content",
-      titleJa: "コンテンツの必須事項",
-      sortOrder: 3,
-      isCollapsible: true,
-      items: [
-        {
-          id: `${tabId}_content_scene1`,
-          titleKo: "필수 장면 1",
-          bodyKo: "관리자가 직접 작성합니다.",
-          titleJa: "Scene 01. 必須シーン",
-          bodyJa: "この項目は管理画面で内容を追加・修正してください。",
-          itemType: "scene",
-          sortOrder: 1,
-          media: []
-        }
-      ]
-    },
-    {
-      id: `${tabId}_notice`,
+  brandColor: string;
+  status: CampaignStatus;
+}): GuideTab {
+  const { tabId, campaignId, shareToken, brandName, productName, skuName, brandColor, status } = params;
+  return {
+    id: tabId,
+    campaignId,
+    shareToken,
+    skuName,
+    productName,
+    brandName,
+    brandColor,
+    heroTitle: brandName,
+    heroSubtitle: productName,
+    status,
+    hashtags: [],
+    sections: [
+      {
+        id: `${tabId}_basic`,
+        sectionType: "basic",
+        titleJa: "基本情報",
+        sortOrder: 1,
+        isCollapsible: false,
+        items: []
+      },
+      {
+        id: `${tabId}_product`,
+        sectionType: "product",
+        titleJa: "商品紹介および訴求ポイント",
+        sortOrder: 2,
+        isCollapsible: true,
+        items: []
+      },
+      {
+        id: `${tabId}_content`,
+        sectionType: "content",
+        titleJa: "コンテンツの必須事項",
+        sortOrder: 3,
+        isCollapsible: true,
+        items: []
+      },
+      {
+        id: `${tabId}_notice`,
+        sectionType: "notice",
+        titleJa: "注意事項",
+        sortOrder: 4,
+        isCollapsible: true,
+        items: [
+          {
+            id: `${tabId}_notice_shooting`,
+            titleKo: "촬영 시 주의사항",
+            bodyKo: "고정 촬영 주의사항",
+            titleJa: "撮影時の注意事項",
+            bodyJa: FIXED_SHOOTING_NOTICE_JA,
+            itemType: "notice",
+            sortOrder: 1,
+            media: []
+          },
+          {
+            id: `${tabId}_notice_posting`,
+            titleKo: "투고 시 주의사항",
+            bodyKo: "관리자가 직접 작성합니다.",
+            titleJa: "投稿時の注意事項",
+            bodyJa: "投稿時の注意事項を管理画面で入力してください。",
+            itemType: "notice",
+            sortOrder: 2,
+            media: []
+          }
+        ]
+      }
+    ]
+  };
+}
+
+function rewriteGuideIds(guide: GuideTab, tabId: string, campaignId: string, shareToken: string): GuideTab {
+  return {
+    ...guide,
+    id: tabId,
+    campaignId,
+    shareToken,
+    sections: guide.sections.map((section, sectionIndex) => {
+      const sectionId = `${tabId}_${section.sectionType}`;
+      return {
+        ...section,
+        id: sectionId,
+        sortOrder: sectionIndex + 1,
+        items: section.items.map((item, itemIndex) => ({
+          ...item,
+          id: `${sectionId}_item_${itemIndex + 1}`,
+          sortOrder: itemIndex + 1,
+          media: (item.media ?? []).map((media, mediaIndex) => ({
+            ...media,
+            id: `${sectionId}_item_${itemIndex + 1}_media_${mediaIndex + 1}`
+          }))
+        }))
+      } satisfies GuideSection;
+    })
+  };
+}
+
+function ensureFixedNotice(guide: GuideTab): GuideTab {
+  const clone: GuideTab = JSON.parse(JSON.stringify(guide));
+  let notice = clone.sections.find((section) => section.sectionType === "notice");
+  if (!notice) {
+    notice = {
+      id: `${clone.id}_notice`,
       sectionType: "notice",
       titleJa: "注意事項",
       sortOrder: 4,
       isCollapsible: true,
-      items: [
-        {
-          id: `${tabId}_notice_shooting`,
-          titleKo: "촬영 시 주의사항",
-          bodyKo: "고정 촬영 주의사항",
-          titleJa: "撮影時の注意事項",
-          bodyJa: FIXED_SHOOTING_NOTICE_JA,
-          itemType: "notice",
-          sortOrder: 1,
-          media: []
-        },
-        {
-          id: `${tabId}_notice_posting`,
-          titleKo: "투고 시 주의사항",
-          bodyKo: "관리자가 직접 작성합니다.",
-          titleJa: "投稿時の注意事項",
-          bodyJa: "投稿前に内容をご確認のうえ、指定された内容に沿って投稿してください。",
-          itemType: "notice",
-          sortOrder: 2,
-          media: []
-        }
-      ]
-    }
-  ];
-}
+      items: []
+    };
+    clone.sections.push(notice);
+  }
 
-function buildPublicGuide(params: {
-  tabId: string;
-  campaignId: string;
-  shareToken: string;
-  skuName: string;
-  productName: string;
-  brandName: string;
-  brandColor: string;
-  heroTitle: string;
-  heroSubtitle: string;
-  status: CampaignStatus;
-  hashtags: string[];
-  sections: GuideSection[];
-}): GuideTab {
-  return {
-    id: params.tabId,
-    campaignId: params.campaignId,
-    shareToken: params.shareToken,
-    skuName: params.skuName,
-    productName: params.productName,
-    brandName: params.brandName,
-    brandColor: params.brandColor,
-    heroTitle: params.heroTitle,
-    heroSubtitle: params.heroSubtitle,
-    status: params.status,
-    hashtags: params.hashtags,
-    sections: params.sections
-  };
-}
+  const shooting = notice.items.find((item) => item.titleJa.includes("撮影") || item.id.includes("notice_shooting"));
+  if (shooting) {
+    shooting.titleKo = "촬영 시 주의사항";
+    shooting.bodyKo = "고정 촬영 주의사항";
+    shooting.titleJa = "撮影時の注意事項";
+    shooting.bodyJa = FIXED_SHOOTING_NOTICE_JA;
+    shooting.itemType = "notice";
+  } else {
+    notice.items.unshift({
+      id: `${clone.id}_notice_shooting`,
+      titleKo: "촬영 시 주의사항",
+      bodyKo: "고정 촬영 주의사항",
+      titleJa: "撮影時の注意事項",
+      bodyJa: FIXED_SHOOTING_NOTICE_JA,
+      itemType: "notice",
+      sortOrder: 1,
+      media: []
+    });
+  }
 
-function stripUndefined<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value));
+  clone.sections = clone.sections.map((section, sectionIndex) => ({
+    ...section,
+    sortOrder: sectionIndex + 1,
+    items: section.items.map((item, itemIndex) => ({ ...item, sortOrder: itemIndex + 1 }))
+  }));
+
+  return clone;
 }
 
 async function writeTopLevelGuideData(params: {
@@ -284,6 +271,7 @@ async function writeTopLevelGuideData(params: {
         itemType: item.itemType,
         sortOrder: item.sortOrder,
         isDeleted: false,
+        media: item.media ?? [],
         updatedAt: now
       }, { merge: true });
     });
@@ -307,7 +295,9 @@ export default function AdminDashboard() {
   const [message, setMessage] = useState("Firebase 연결 대기 중");
   const [error, setError] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [form, setForm] = useState<NewCampaignForm>(emptyForm);
+  const [createState, setCreateState] = useState<ExcelCreateState>(emptyExcelCreate);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createPreview, setCreatePreview] = useState<GuideTab | null>(null);
 
   async function loadCampaigns() {
     if (!isFirebaseClientConfigured()) {
@@ -368,6 +358,24 @@ export default function AdminDashboard() {
     }
   }
 
+  async function readGlossary() {
+    if (!isFirebaseClientConfigured()) return [];
+    try {
+      const db = getFirebaseDb();
+      const snapshot = await getDocs(collection(db, "glossaryGlobal"));
+      return snapshot.docs.map((item) => {
+        const data = item.data() as Record<string, unknown>;
+        return {
+          korean: String(data.korean ?? ""),
+          japanese: String(data.japanese ?? ""),
+          category: String(data.category ?? "")
+        };
+      }).filter((item) => item.korean && item.japanese);
+    } catch {
+      return [];
+    }
+  }
+
   async function createSampleData() {
     if (!isFirebaseClientConfigured()) {
       setError("Firebase 환경변수가 설정되어 있지 않습니다.");
@@ -417,90 +425,152 @@ export default function AdminDashboard() {
     }
   }
 
-  async function createCampaign(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function openCreateModal() {
+    setCreateState(emptyExcelCreate);
+    setCreatePreview(null);
+    setError("");
+    setMessage("오리엔시트 XLSX를 업로드하면 캠페인 초안을 자동 생성합니다.");
+    setIsCreateOpen(true);
+  }
 
+  async function handleCreateExcelUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setCreateBusy(true);
+    setCreatePreview(null);
+    setError("");
+
+    try {
+      const parsed = await parseOrientSheetFile(file);
+      const detectedBrand = parsed.fields.brandName || "";
+      const detectedProduct = parsed.fields.productName || parsed.sheetName.replace(/^KOR_/, "");
+      setCreateState((current) => ({
+        ...current,
+        fileName: file.name,
+        parsed,
+        campaignName: current.campaignName || [detectedBrand, detectedProduct].filter(Boolean).join(" ") || file.name.replace(/\.xlsx?$/i, "")
+      }));
+      setMessage(`${parsed.sheetName} 시트를 읽었습니다. 아래 버튼으로 GPT 초안을 생성해 주세요.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "엑셀 파일을 읽는 중 오류가 발생했습니다.");
+    } finally {
+      setCreateBusy(false);
+    }
+  }
+
+  async function generateCreatePreview() {
+    if (!createState.parsed) {
+      setError("먼저 오리엔시트 XLSX 파일을 선택해 주세요.");
+      return;
+    }
+
+    setCreateBusy(true);
+    setError("");
+    setMessage("오리엔시트 내용을 바탕으로 일본어 가이드 초안을 생성 중입니다...");
+
+    try {
+      const campaignId = createId("campaign");
+      const tabId = createId("tab");
+      const baseBrand = createState.parsed.fields.brandName || "Brand";
+      const baseProduct = createState.parsed.fields.productName || createState.parsed.sheetName.replace(/^KOR_/, "") || "Product";
+      const shareToken = `guide-${slugify(baseBrand)}-${slugify(baseProduct)}-${Date.now()}-jp`;
+      const blank = makeBlankGuide({
+        tabId,
+        campaignId,
+        shareToken,
+        brandName: baseBrand,
+        productName: baseProduct,
+        skuName: baseProduct,
+        brandColor: createState.brandColor,
+        status: createState.status
+      });
+      const glossary = await readGlossary();
+      const response = await fetch("/api/generate/guide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parsed: createState.parsed, glossary })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || "GPT 가이드 생성에 실패했습니다.");
+
+      const merged = ensureFixedNotice(rewriteGuideIds(mergeGeneratedGuide(blank, result.guide), tabId, campaignId, shareToken));
+      const guide: GuideTab = {
+        ...merged,
+        brandColor: createState.brandColor,
+        status: createState.status,
+        campaignId,
+        id: tabId,
+        shareToken
+      };
+      setCreatePreview(guide);
+      setCreateState((current) => ({
+        ...current,
+        campaignName: current.campaignName || `${guide.brandName} ${guide.productName}`.trim()
+      }));
+      setMessage(result.mode === "openai" ? "GPT 초안을 생성했습니다. 생성 버튼을 누르면 캠페인으로 저장됩니다." : "임시 초안을 생성했습니다. OPENAI_API_KEY 설정 후 더 자연스럽게 생성할 수 있습니다.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "초안 생성 중 오류가 발생했습니다.");
+    } finally {
+      setCreateBusy(false);
+    }
+  }
+
+  async function createCampaignFromPreview() {
+    if (!createPreview) {
+      setError("먼저 XLSX 파일로 초안을 생성해 주세요.");
+      return;
+    }
     if (!isFirebaseClientConfigured()) {
       setError("Firebase 환경변수가 설정되어 있지 않습니다.");
       return;
     }
 
-    const campaignName = form.campaignName.trim();
-    const brandName = form.brandName.trim();
-    const skuName = form.skuName.trim();
-    const productName = form.productName.trim();
-
-    if (!campaignName || !brandName || !skuName || !productName) {
-      setError("캠페인명, 브랜드명, SKU명, 상품명은 필수입니다.");
-      return;
-    }
-
-    setLoading(true);
+    setCreateBusy(true);
     setError("");
-    setMessage("새 캠페인을 생성 중입니다...");
+    setMessage("생성된 초안을 캠페인으로 저장 중입니다...");
 
     try {
       const db = getFirebaseDb();
       const now = serverTimestamp();
-      const campaignId = createId("campaign");
-      const tabId = createId("tab");
-      const shareToken = `guide-${slugify(brandName)}-${slugify(skuName)}-${Date.now()}-jp`;
-      const hashtags = splitHashtags(form.hashtags);
-      const brandColor = form.brandColor || "#2D5A3D";
-      const heroTitle = form.heroTitle.trim() || brandName;
-      const heroSubtitle = form.heroSubtitle.trim() || productName;
-      const sections = createDefaultSections({ tabId, brandName, productName, skuName, hashtags });
-      const guide = buildPublicGuide({
-        tabId,
-        campaignId,
-        shareToken,
-        skuName,
-        productName,
-        brandName,
-        brandColor,
-        heroTitle,
-        heroSubtitle,
-        status: form.status,
-        hashtags,
-        sections
-      });
+      const campaignName = createState.campaignName.trim() || `${createPreview.brandName} ${createPreview.productName}`.trim() || "Untitled Campaign";
+      const guide = { ...createPreview, status: createState.status, brandColor: createState.brandColor };
 
       const batch = writeBatch(db);
-      batch.set(doc(db, "campaigns", campaignId), {
+      batch.set(doc(db, "campaigns", guide.campaignId), {
         campaignName,
-        brandName,
-        status: form.status,
+        brandName: guide.brandName,
+        status: guide.status,
         archivedAt: null,
         createdAt: now,
         updatedAt: now
       });
-      batch.set(doc(db, "campaignTabs", tabId), {
-        campaignId,
-        shareToken,
-        skuName,
-        productName,
-        brandName,
-        brandColor,
-        heroTitle,
-        heroSubtitle,
-        status: form.status,
-        hashtags,
+      batch.set(doc(db, "campaignTabs", guide.id), {
+        campaignId: guide.campaignId,
+        shareToken: guide.shareToken,
+        skuName: guide.skuName,
+        productName: guide.productName,
+        brandName: guide.brandName,
+        brandColor: guide.brandColor,
+        heroTitle: guide.heroTitle,
+        heroSubtitle: guide.heroSubtitle,
+        status: guide.status,
+        hashtags: guide.hashtags,
         sortOrder: 0,
         createdAt: now,
         updatedAt: now
       });
       await batch.commit();
+      await writeTopLevelGuideData({ campaignId: guide.campaignId, tabId: guide.id, guide });
 
-      await writeTopLevelGuideData({ campaignId, tabId, guide });
-
-      setMessage(`새 캠페인 생성 완료. 공유 링크: /guide/${shareToken}`);
+      setMessage(`캠페인 생성 완료. 편집 화면에서 최종 확인해 주세요: /admin/tabs/${guide.shareToken}/edit`);
       setIsCreateOpen(false);
-      setForm(emptyForm);
+      setCreatePreview(null);
+      setCreateState(emptyExcelCreate);
       await loadCampaigns();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "캠페인 생성 중 오류가 발생했습니다.");
+      setError(err instanceof Error ? err.message : "캠페인 저장 중 오류가 발생했습니다.");
     } finally {
-      setLoading(false);
+      setCreateBusy(false);
     }
   }
 
@@ -534,7 +604,7 @@ export default function AdminDashboard() {
               bodyJa: String(item.bodyJa ?? ""),
               itemType: String(item.itemType ?? "text") as GuideItem["itemType"],
               sortOrder: Number(item.sortOrder ?? 0),
-              media: []
+              media: Array.isArray(item.media) ? item.media : []
             };
           })
           .filter((item) => item.titleJa || item.bodyJa)
@@ -550,8 +620,8 @@ export default function AdminDashboard() {
         });
       }
 
-      const guide = buildPublicGuide({
-        tabId: tabDoc.id,
+      const guide = ensureFixedNotice({
+        id: tabDoc.id,
         campaignId: campaign.id,
         shareToken: String(tab.shareToken ?? campaign.firstShareToken),
         skuName: String(tab.skuName ?? ""),
@@ -622,20 +692,19 @@ export default function AdminDashboard() {
       const db = getFirebaseDb();
       const sourceGuideToken = campaign.firstShareToken;
       if (!sourceGuideToken) throw new Error("복제할 공유 링크가 없습니다.");
-      const sourceGuideSnapshot = await getDocs(query(collection(db, "publicGuides"), where("shareToken", "==", sourceGuideToken)));
-      const sourceGuide = sourceGuideSnapshot.empty ? null : sourceGuideSnapshot.docs[0].data() as GuideTab;
+      const sourceGuideSnapshot = await getDoc(doc(db, "publicGuides", sourceGuideToken));
+      const guideBase = sourceGuideSnapshot.exists() ? sourceGuideSnapshot.data() as GuideTab : mockGuideTab;
       const newCampaignId = createId("campaign");
       const newTabId = createId("tab");
       const newShareToken = `guide-copy-${Date.now()}-jp`;
       const now = serverTimestamp();
-      const guideBase = sourceGuide ?? mockGuideTab;
-      const newGuide: GuideTab = {
+      const newGuide = rewriteGuideIds({
         ...guideBase,
         id: newTabId,
         campaignId: newCampaignId,
         shareToken: newShareToken,
         status: "unpublished"
-      };
+      }, newTabId, newCampaignId, newShareToken);
 
       const batch = writeBatch(db);
       batch.set(doc(db, "campaigns", newCampaignId), {
@@ -661,11 +730,8 @@ export default function AdminDashboard() {
         createdAt: now,
         updatedAt: now
       });
-      batch.set(doc(db, "publicGuides", newShareToken), {
-        ...stripUndefined(newGuide),
-        updatedAt: now
-      });
       await batch.commit();
+      await writeTopLevelGuideData({ campaignId: newCampaignId, tabId: newTabId, guide: newGuide });
 
       setMessage("캠페인을 미공개 상태로 복제했습니다.");
       await loadCampaigns();
@@ -748,11 +814,9 @@ export default function AdminDashboard() {
         </div>
         <nav className="sidebar-nav">
           <div className="nav-label">Main</div>
-          <div className="nav-item active">대시보드</div>
-          <div className="nav-item">캠페인 목록</div>
-          <div className="nav-item">SKU 세부탭</div>
+          <a className="nav-item active" href="/admin">대시보드</a>
+          <a className="nav-item" href="#campaign-table">캠페인 목록</a>
           <div className="nav-label">Settings</div>
-          <div className="nav-item">관리자 설정</div>
           <a className="nav-item" href="/admin/glossary">전사 공통 용어집</a>
         </nav>
         <div className="sidebar-footer">
@@ -769,14 +833,14 @@ export default function AdminDashboard() {
           <div className="topbar-right">
             <button className="btn btn-ghost" type="button" onClick={loadCampaigns} disabled={loading}>새로고침</button>
             <button className="btn btn-ghost" type="button" onClick={createSampleData} disabled={loading}>샘플 데이터</button>
-            <button className="btn btn-primary" type="button" onClick={() => setIsCreateOpen(true)} disabled={loading}>새 캠페인</button>
+            <button className="btn btn-primary" type="button" onClick={openCreateModal} disabled={loading}>새 캠페인</button>
           </div>
         </div>
 
         <div className="page">
           <div className="page-header">
             <h1>캠페인 목록</h1>
-            <p>캠페인과 SKU별 공유 링크를 생성·관리합니다.</p>
+            <p>새 캠페인은 오리엔시트 XLSX 업로드를 기준으로 자동 초안을 생성합니다.</p>
           </div>
 
           <div className={`setup-banner ${error ? "danger" : "success"}`}>
@@ -810,7 +874,7 @@ export default function AdminDashboard() {
             </select>
           </section>
 
-          <section className="table-wrap">
+          <section className="table-wrap" id="campaign-table">
             <table>
               <thead>
                 <tr>
@@ -856,7 +920,7 @@ export default function AdminDashboard() {
                 })}
                 {!filtered.length ? (
                   <tr>
-                    <td colSpan={6}>표시할 캠페인이 없습니다. 상단의 새 캠페인을 눌러 첫 캠페인을 만들어 주세요.</td>
+                    <td colSpan={6}>표시할 캠페인이 없습니다. 상단의 새 캠페인을 눌러 오리엔시트 XLSX로 첫 캠페인을 만들어 주세요.</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -865,15 +929,15 @@ export default function AdminDashboard() {
 
           <section className="editor-grid">
             <div className="editor-card">
-              <h3>이번 단계에서 가능한 작업</h3>
+              <h3>운영 흐름</h3>
               <div className="form-grid">
-                <textarea className="form-textarea" readOnly value="1. 실제 캠페인 생성\n2. SKU 세부탭 1개 자동 생성\n3. publicGuides 공개 문서 자동 생성\n4. 공개/미공개 변경\n5. 공유 링크 권한 오류 수정\n6. 기존 데이터는 ⟳ 버튼으로 동기화" />
-                <button className="btn btn-primary" type="button" onClick={() => setIsCreateOpen(true)} disabled={loading}>새 캠페인 만들기</button>
+                <textarea className="form-textarea" readOnly value="1. 새 캠페인 클릭\n2. 오리엔시트 XLSX 업로드\n3. GPT 초안 자동 생성\n4. 캠페인 저장\n5. ✎ 버튼으로 세부 편집\n6. /guide/{token} 공유" />
+                <button className="btn btn-primary" type="button" onClick={openCreateModal} disabled={loading}>오리엔시트로 새 캠페인 만들기</button>
               </div>
             </div>
             <div className="preview-phone" aria-label="휴대폰 크기 미리보기">
               <div className="preview-screen">
-                <GuidePage guide={mockGuideTab} embedded />
+                <GuidePage guide={createPreview ?? mockGuideTab} embedded />
               </div>
             </div>
           </section>
@@ -884,45 +948,59 @@ export default function AdminDashboard() {
         <div style={modalOverlayStyle}>
           <div style={modalStyle}>
             <div style={modalHeaderStyle}>
-              <strong>새 캠페인 생성</strong>
+              <div>
+                <strong>새 캠페인 생성</strong>
+                <p style={{ margin: "4px 0 0", color: "#9E9890", fontSize: 12 }}>오리엔시트 XLSX를 업로드하면 기본 정보와 상품 소개 초안을 자동 작성합니다.</p>
+              </div>
               <button className="icon-btn" type="button" onClick={() => setIsCreateOpen(false)}>×</button>
             </div>
-            <form onSubmit={createCampaign} style={{ display: "grid", gap: 14 }}>
+
+            <div style={{ display: "grid", gap: 14 }}>
+              <label className="upload-zone" style={{ display: "block" }}>
+                <input type="file" accept=".xlsx,.xls" onChange={handleCreateExcelUpload} style={{ display: "none" }} />
+                <div className="upload-text">오리엔시트 XLSX 업로드</div>
+                <div className="upload-sub">KOR_ 시트를 자동으로 읽고, GPT로 일본어 가이드 초안을 만듭니다.</div>
+                {createState.fileName ? <div style={{ marginTop: 10, fontSize: 12 }}>선택됨: {createState.fileName}</div> : null}
+              </label>
+
+              {createState.parsed ? (
+                <div className="parsed-summary">
+                  <strong>읽은 시트:</strong> {createState.parsed.sheetName}
+                  <span>브랜드: {createState.parsed.fields.brandName || "미감지"}</span>
+                  <span>상품명: {createState.parsed.fields.productName || "미감지"}</span>
+                  <span>소구 포인트: {createState.parsed.appealPoints.length}개</span>
+                  <span>해시태그: {createState.parsed.hashtags.join(" ") || "미감지"}</span>
+                </div>
+              ) : null}
+
               <div style={twoColumnStyle}>
-                <Field label="캠페인명" value={form.campaignName} onChange={(value) => setForm({ ...form, campaignName: value })} placeholder="예: Easydew 2026 Q2" required />
-                <Field label="브랜드명" value={form.brandName} onChange={(value) => setForm({ ...form, brandName: value })} placeholder="예: Easydew" required />
-              </div>
-              <div style={twoColumnStyle}>
-                <Field label="SKU명" value={form.skuName} onChange={(value) => setForm({ ...form, skuName: value })} placeholder="예: ointgel" required />
-                <Field label="상품명" value={form.productName} onChange={(value) => setForm({ ...form, productName: value })} placeholder="예: EGF X ダウンタイム オイントゲル" required />
-              </div>
-              <div style={twoColumnStyle}>
-                <Field label="히어로 제목" value={form.heroTitle} onChange={(value) => setForm({ ...form, heroTitle: value })} placeholder="비우면 브랜드명 사용" />
-                <Field label="히어로 부제목" value={form.heroSubtitle} onChange={(value) => setForm({ ...form, heroSubtitle: value })} placeholder="비우면 상품명 사용" />
-              </div>
-              <div style={twoColumnStyle}>
+                <Field label="캠페인명" value={createState.campaignName} onChange={(value) => setCreateState({ ...createState, campaignName: value })} placeholder="업로드 후 자동 입력" />
                 <label style={labelStyle}>
                   브랜드 컬러
-                  <input className="form-input" type="color" value={form.brandColor} onChange={(event) => setForm({ ...form, brandColor: event.target.value })} />
-                </label>
-                <label style={labelStyle}>
-                  상태
-                  <select className="form-input" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as CampaignStatus })}>
-                    <option value="unpublished">미공개</option>
-                    <option value="published">공개</option>
-                    <option value="error">오류</option>
-                  </select>
+                  <input className="form-input" type="color" value={createState.brandColor} onChange={(event) => setCreateState({ ...createState, brandColor: event.target.value })} />
                 </label>
               </div>
               <label style={labelStyle}>
-                필수 해시태그
-                <input className="form-input" value={form.hashtags} onChange={(event) => setForm({ ...form, hashtags: event.target.value })} placeholder="#PR #ブランド名" />
+                상태
+                <select className="form-input" value={createState.status} onChange={(event) => setCreateState({ ...createState, status: event.target.value as CampaignStatus })}>
+                  <option value="unpublished">미공개</option>
+                  <option value="published">공개</option>
+                  <option value="error">오류</option>
+                </select>
               </label>
+
+              {createPreview ? (
+                <div className="setup-banner success">
+                  초안 생성 완료: {createPreview.brandName} · {createPreview.productName}
+                </div>
+              ) : null}
+
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
                 <button className="btn btn-ghost" type="button" onClick={() => setIsCreateOpen(false)}>취소</button>
-                <button className="btn btn-primary" type="submit" disabled={loading}>생성</button>
+                <button className="btn btn-ghost" type="button" onClick={generateCreatePreview} disabled={createBusy || !createState.parsed}>{createBusy ? "처리 중..." : "GPT 초안 생성"}</button>
+                <button className="btn btn-primary" type="button" onClick={createCampaignFromPreview} disabled={createBusy || !createPreview}>캠페인 저장</button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       ) : null}
@@ -944,19 +1022,17 @@ function Field({
   label,
   value,
   onChange,
-  placeholder,
-  required
+  placeholder
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
-  required?: boolean;
 }) {
   return (
     <label style={labelStyle}>
-      {label}{required ? " *" : ""}
-      <input className="form-input" value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} required={required} />
+      {label}
+      <input className="form-input" value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
     </label>
   );
 }
@@ -973,7 +1049,9 @@ const modalOverlayStyle = {
 } as const;
 
 const modalStyle = {
-  width: "min(760px, 100%)",
+  width: "min(940px, 100%)",
+  maxHeight: "92vh",
+  overflow: "auto",
   background: "#FDFCFA",
   border: "1px solid #E2DDD5",
   borderRadius: 16,
@@ -984,7 +1062,7 @@ const modalStyle = {
 const modalHeaderStyle = {
   display: "flex",
   justifyContent: "space-between",
-  alignItems: "center",
+  alignItems: "flex-start",
   marginBottom: 18
 } as const;
 
