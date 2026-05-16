@@ -1,5 +1,0 @@
-audit=false
-fund=false
-progress=false
-loglevel=error
-prefer-offline=true
