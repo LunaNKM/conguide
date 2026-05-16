@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { cloneElement, isValidElement, useEffect, useMemo, useState } from "react";
 import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { getFirebaseAuth, getFirebaseDb, isFirebaseClientConfigured } from "@/lib/firebase/client";
@@ -119,15 +119,14 @@ export default function AuthGate({ children }: AuthGateProps) {
     );
   }
 
-  return (
-    <>
-      <div className="setup-banner success">
-        관리자 로그인: {user?.email}
-        <button className="mini-link" onClick={handleLogout}>로그아웃</button>
-      </div>
-      {children}
-    </>
-  );
+  if (isValidElement(children)) {
+    return cloneElement(children as React.ReactElement<Record<string, unknown>>, {
+      currentUser: user,
+      onLogout: handleLogout
+    });
+  }
+
+  return <>{children}</>;
 }
 
 function FullPageMessage({ title, body, action }: { title: string; body: string; action?: React.ReactNode }) {

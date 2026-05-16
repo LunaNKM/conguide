@@ -1912,3 +1912,75 @@ tbody tr:last-child td { border-bottom: 0; }
     scroll-behavior: auto !important;
   }
 }
+
+
+/* ── Account footer + status badge patch ───────────────────── */
+.status-cell {
+  min-width: 96px;
+  width: 96px;
+  white-space: nowrap;
+}
+.status-cell .badge,
+.badge {
+  white-space: nowrap;
+  word-break: keep-all;
+  line-break: strict;
+  min-width: 58px;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.status-cell .badge::before { flex: none; }
+
+.sidebar-account-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+}
+.avatar-image {
+  object-fit: cover;
+  background: var(--c-bg-sunken);
+}
+.account-meta {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.account-name {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--c-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+.account-email {
+  font-size: 11px;
+  color: var(--c-ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.logout-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--c-border-strong);
+  background: var(--c-bg-elevated);
+  color: var(--c-ink-2);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  line-height: 1;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.logout-icon-btn:hover {
+  color: var(--c-danger);
+  border-color: rgba(184, 36, 36, 0.25);
+  background: var(--c-danger-soft);
+  transform: translateY(-1px);
+}
+.topbar .setup-banner { display: none; }

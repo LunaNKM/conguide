@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import type { User } from "firebase/auth";
 import {
   collection,
   doc,
@@ -313,7 +314,22 @@ async function writeTopLevelGuideData(params: {
   await batch.commit();
 }
 
-export default function AdminDashboard() {
+
+interface AdminDashboardProps {
+  currentUser?: Pick<User, "displayName" | "email" | "photoURL"> | null;
+  onLogout?: () => void | Promise<void>;
+}
+
+function getUserInitials(nameOrEmail?: string | null) {
+  const value = (nameOrEmail ?? "GF").trim();
+  if (!value) return "GF";
+  const name = value.includes("@") ? value.split("@")[0] : value;
+  const parts = name.replace(/[._-]+/g, " ").split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+export default function AdminDashboard({ currentUser = null, onLogout }: AdminDashboardProps) {
   const [queryText, setQueryText] = useState("");
   const [status, setStatus] = useState<"all" | CampaignStatus>("all");
   const [campaigns, setCampaigns] = useState<DashboardCampaign[]>(mockCampaigns);
@@ -841,6 +857,10 @@ export default function AdminDashboard() {
     ? `/guide/${filtered.find((item) => item.firstShareToken)?.firstShareToken}`
     : `/guide/${mockGuideTab.shareToken}`;
 
+  const accountName = currentUser?.displayName || currentUser?.email?.split("@")[0] || "관리자";
+  const accountEmail = currentUser?.email || "로그인 정보 없음";
+  const accountInitials = getUserInitials(currentUser?.displayName || currentUser?.email);
+
   return (
     <div className="admin-shell">
       <aside className="sidebar">
@@ -856,9 +876,21 @@ export default function AdminDashboard() {
           <a className="nav-item" href="/admin/glossary">전사 공통 용어집</a>
         </nav>
         <div className="sidebar-footer">
-          <div className="user-row">
-            <div className="avatar">GF</div>
-            <div>Firebase 연결</div>
+          <div className="user-row sidebar-account-row">
+            {currentUser?.photoURL ? (
+              <img className="avatar avatar-image" src={currentUser.photoURL} alt="관리자 프로필" />
+            ) : (
+              <div className="avatar">{accountInitials}</div>
+            )}
+            <div className="account-meta">
+              <div className="account-name">{accountName}</div>
+              <div className="account-email">{accountEmail}</div>
+            </div>
+            {onLogout ? (
+              <button className="logout-icon-btn" type="button" onClick={onLogout} title="로그아웃" aria-label="로그아웃">
+                ⎋
+              </button>
+            ) : null}
           </div>
         </div>
       </aside>
@@ -935,7 +967,7 @@ export default function AdminDashboard() {
                           </div>
                         </div>
                       </td>
-                      <td><span className={`badge ${statusClass[campaign.status]}`}>{statusLabel[campaign.status]}</span></td>
+                      <td className="status-cell"><span className={`badge ${statusClass[campaign.status]}`}>{statusLabel[campaign.status]}</span></td>
                       <td>{campaign.tabCount}개</td>
                       <td>{guideUrl ? <code>{guideUrl}</code> : "-"}</td>
                       <td>{campaign.updatedAt}</td>
