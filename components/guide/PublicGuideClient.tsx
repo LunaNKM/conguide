@@ -141,7 +141,7 @@ async function buildGuideFromRawCollections(shareToken: string): Promise<GuideTa
     query(collection(db, "mediaAssets"), where("tabId", "==", tabDoc.id))
   );
 
-  const mediaByItemId = new Map<string, GuideMedia[]>();
+  const mediaByItemId = new Map<string, Array<{ media: GuideMedia; order: number }>>();
   mediaSnapshot.docs.forEach((mediaDoc) => {
     const data = mediaDoc.data();
     const itemId = pickString(data, "itemId", "item_id");
@@ -151,10 +151,12 @@ async function buildGuideFromRawCollections(shareToken: string): Promise<GuideTa
       mediaType: (pickString(data, "mediaType", "media_type") || "external_link") as GuideMedia["mediaType"],
       fileUrl: pickString(data, "fileUrl", "file_url"),
       externalUrl: pickString(data, "externalUrl", "external_url"),
-      title: pickString(data, "title"),
-      sortOrder: pickNumber(data, "sortOrder", "sort_order")
+      title: pickString(data, "title")
     };
-    mediaByItemId.set(itemId, [...(mediaByItemId.get(itemId) ?? []), media]);
+    mediaByItemId.set(itemId, [
+      ...(mediaByItemId.get(itemId) ?? []),
+      { media, order: pickNumber(data, "sortOrder", "sort_order") }
+    ]);
   });
 
   const sections = await Promise.all(
@@ -178,7 +180,9 @@ async function buildGuideFromRawCollections(shareToken: string): Promise<GuideTa
             isDeleted: pickBoolean(data, "isDeleted", "is_deleted"),
             textSize: pickString(data, "textSize", "text_size") as GuideItem["textSize"],
             emphasize: pickBoolean(data, "emphasize"),
-            media: (mediaByItemId.get(itemDoc.id) ?? []).sort(sortByOrder)
+            media: (mediaByItemId.get(itemDoc.id) ?? [])
+              .sort((a, b) => a.order - b.order)
+              .map((entry) => entry.media)
           } as GuideItem;
         })
         .filter((item) => !item.isDeleted)
