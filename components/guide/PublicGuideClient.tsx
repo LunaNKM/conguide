@@ -167,8 +167,11 @@ async function buildGuideFromRawCollections(shareToken: string): Promise<GuideTa
       );
 
       const items: GuideItem[] = itemsSnapshot.docs
-        .map((itemDoc) => {
+        .map((itemDoc): GuideItem | null => {
           const data = itemDoc.data();
+          const isDeleted = pickBoolean(data, "isDeleted", "is_deleted");
+          if (isDeleted) return null;
+
           return {
             id: itemDoc.id,
             titleKo: pickString(data, "titleKo", "title_ko"),
@@ -177,15 +180,14 @@ async function buildGuideFromRawCollections(shareToken: string): Promise<GuideTa
             bodyJa: pickString(data, "bodyJa", "body_ja") || "",
             itemType: (pickString(data, "itemType", "item_type") || "text") as GuideItem["itemType"],
             sortOrder: pickNumber(data, "sortOrder", "sort_order"),
-            isDeleted: pickBoolean(data, "isDeleted", "is_deleted"),
             textSize: pickString(data, "textSize", "text_size") as GuideItem["textSize"],
             emphasize: pickBoolean(data, "emphasize"),
             media: (mediaByItemId.get(itemDoc.id) ?? [])
               .sort((a, b) => a.order - b.order)
               .map((entry) => entry.media)
-          } as GuideItem;
+          };
         })
-        .filter((item) => !item.isDeleted)
+        .filter((item): item is GuideItem => item !== null)
         .sort(sortByOrder);
 
       return {
