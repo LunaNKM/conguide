@@ -7,41 +7,40 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function adminDocPath() {
-      return /databases/$(database)/documents/allowedAdmins/$(request.auth.token.email);
-    }
-
     function isAllowedAdmin() {
-      return isSignedIn() && exists(adminDocPath());
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/allowedAdmins/$(request.auth.token.email));
     }
 
     match /allowedAdmins/{email} {
-      // 로그인한 사용자는 자기 관리자 등록 여부를 확인할 수 있습니다.
       allow get: if isSignedIn() && email == request.auth.token.email;
-
-      // 이미 등록된 관리자는 관리자 목록을 보고 새 관리자를 추가/수정/삭제할 수 있습니다.
       allow list: if isAllowedAdmin();
       allow create, update, delete: if isAllowedAdmin();
     }
 
     match /campaigns/{campaignId} {
-      allow read, write: if isAllowedAdmin();
+      allow read: if isAllowedAdmin() || true;
+      allow write: if isAllowedAdmin();
     }
 
     match /campaignTabs/{tabId} {
-      allow read, write: if isAllowedAdmin();
+      allow read: if isAllowedAdmin() || true;
+      allow write: if isAllowedAdmin();
     }
 
     match /guideSections/{sectionId} {
-      allow read, write: if isAllowedAdmin();
+      allow read: if isAllowedAdmin() || true;
+      allow write: if isAllowedAdmin();
     }
 
     match /guideItems/{itemId} {
-      allow read, write: if isAllowedAdmin();
+      allow read: if isAllowedAdmin() || resource.data.isDeleted != true;
+      allow write: if isAllowedAdmin();
     }
 
     match /mediaAssets/{mediaId} {
-      allow read, write: if isAllowedAdmin();
+      allow read: if isAllowedAdmin() || true;
+      allow write: if isAllowedAdmin();
     }
 
     match /publicGuides/{token} {
@@ -55,8 +54,8 @@ service cloud.firestore {
     }
 
     match /systemTemplates/{docId} {
-      allow get, list: if true;
-      allow create, update, delete: if isAllowedAdmin();
+      allow read: if true;
+      allow write: if isAllowedAdmin();
     }
   }
 }
